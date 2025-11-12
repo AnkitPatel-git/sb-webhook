@@ -1,0 +1,47 @@
+{
+  "statustracking": [
+    {
+      "Shipment": {
+        "WaybillNo": "57941201614",
+        "RefNo": "",
+        "Scan": "SHIPMENT OUTSCAN",
+        "ScanCode": "002",
+        "ScanGroupType": "S",
+        "ScanDate": "23-05-2019",
+        "ScanTime": "1448",
+        "ScanType": "UD",
+        "ScannedLocationCode": "PLW",
+        "Comments": ""
+      }
+    },
+    {
+      "Shipment": {
+        "WaybillNo": "57941201614",
+        "RefNo": "",
+        "Scan": "RESIDENCE/OFFICE CLOSED;CANT DELIVER",
+        "ScanCode": "003",
+        "ScanGroupType": "T",
+        "ScanDate": "23-05-2019",
+        "ScanTime": "1452",
+        "ScanType": "UD",
+        "ScannedLocationCode": "PLW",
+        "Comments": ""
+      }
+    },
+    {
+      "Shipment": {
+        "WaybillNo": "57941201614",
+        "RefNo": "",
+        "Scan": "SHIPMENT INSCAN",
+        "ScanCode": "001",
+        "ScanGroupType": "S",
+        "ScanDate": "23-05-2019",
+        "ScanTime": "1436",
+        "ScanType": "UD",
+        "ScannedLocationCode": "TWH",
+        "Comments": ""
+      }
+    }
+  ]
+}
+

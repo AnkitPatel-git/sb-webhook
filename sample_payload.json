@@ -1,0 +1,78 @@
+{
+  "statustracking": [
+    {
+      "Shipment": {
+        "SenderID": "12345",
+        "ReceiverID": "67890",
+        "WaybillNo": "1234567890",
+        "RefNo": "REF123456",
+        "Prodcode": "A",
+        "SubProductCode": "1",
+        "Feature": "F",
+        "Origin": "Mumbai",
+        "OriginAreaCode": "400001",
+        "Destination": "Delhi",
+        "DestinationAreaCode": "110001",
+        "PickUpDate": "15-01-2024",
+        "PickUpTime": "10:30",
+        "ExpectedDeliveryDate": "18-01-2024",
+        "ShipmentMode": "A",
+        "Weight": "2.5",
+        "DynamicExpectedDeliveryDate": "18-01-2024",
+        "Scans": {
+          "ScanDetail": [
+            {
+              "ScanType": "P",
+              "ScanGroupType": "P",
+              "ScanCode": "P",
+              "Scan": "Picked up",
+              "ScanDate": "15-01-2024",
+              "ScanTime": "10:30",
+              "ScannedLocationCode": "BOM",
+              "ScannedLocation": "Mumbai",
+              "ScannedLocationCity": "Mumbai",
+              "ScannedLocationStateCode": "MH",
+              "Comments": "Shipment picked up from origin",
+              "StatusTimeZone": "IST",
+              "StatusLatitude": "19.0760",
+              "StatusLongitude": "72.8777",
+              "ReachedDestinationLocation": "N",
+              "SecureCode": null,
+              "ReceivedBy": null,
+              "Relation": null,
+              "IDType": null,
+              "IDNumber": null,
+              "QCType": null,
+              "QCReason": null
+            },
+            {
+              "ScanType": "I",
+              "ScanGroupType": "I",
+              "ScanCode": "I",
+              "Scan": "In transit",
+              "ScanDate": "16-01-2024",
+              "ScanTime": "14:20",
+              "ScannedLocationCode": "DEL",
+              "ScannedLocation": "Delhi Hub",
+              "ScannedLocationCity": "Delhi",
+              "ScannedLocationStateCode": "DL",
+              "Comments": "Shipment in transit",
+              "StatusTimeZone": "IST",
+              "StatusLatitude": "28.6139",
+              "StatusLongitude": "77.2090",
+              "ReachedDestinationLocation": "N",
+              "SecureCode": null,
+              "ReceivedBy": null,
+              "Relation": null,
+              "IDType": null,
+              "IDNumber": null,
+              "QCType": null,
+              "QCReason": null
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+

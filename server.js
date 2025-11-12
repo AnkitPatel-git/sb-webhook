@@ -1,0 +1,73 @@
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+require('dotenv').config();
+
+const bluedartRoutes = require('./routes/bluedartRoutes');
+const errorHandler = require('./middleware/errorHandler');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+// Increase body parser limit for large payloads
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+
+// Trust proxy for accurate IP addresses (important for IP whitelisting)
+app.set('trust proxy', true);
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
+  next();
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Blue Dart Webhook API is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Blue Dart API routes
+app.use('/api/bluedart', bluedartRoutes);
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Welcome to Blue Dart Webhook API',
+    endpoints: {
+      health: '/health',
+      webhook: '/api/bluedart/status',
+      shipments: '/api/bluedart/shipments',
+      shipment: '/api/bluedart/shipments/:waybillNo'
+    }
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found'
+  });
+});
+
+// Error handler (must be last)
+app.use(errorHandler);
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Blue Dart Webhook Server is running on port ${PORT}`);
+  console.log(`🌐 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔗 Webhook endpoint: http://localhost:${PORT}/api/bluedart/status`);
+  console.log(`📦 Shipments API: http://localhost:${PORT}/api/bluedart/shipments`);
+});
+
+module.exports = app;
+

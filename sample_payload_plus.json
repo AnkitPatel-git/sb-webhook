@@ -1,0 +1,66 @@
+{
+  "statustracking": [
+    {
+      "Shipment": {
+        "SenderID": "Bluedart",
+        "ReceiverID": "TATAUNISTORE",
+        "WaybillNo": "69679343790",
+        "Origin": "NEW DELHI",
+        "OriginAreaCode": "DEL",
+        "Destination": "MUMBAI",
+        "DestinationAreaCode": "GOR",
+        "PickUpDate": "27-05-2019",
+        "PickUpTime": "1444",
+        "ShipmentMode": "F",
+        "ExpectedDeliveryDate": "28-05-2019",
+        "Feature": "",
+        "RefNo": "5671827",
+        "Prodcode": "A",
+        "SubProductCode": "P",
+        "Weight": "0.5",
+        "DynamicExpectedDeliveryDate": "28-05-2019",
+        "Scans": {
+          "ScanDetail": [
+            {
+              "Scan": "SHIPMENT DELIVERED",
+              "ScanCode": "000",
+              "ScanGroupType": "T",
+              "ScanDate": "28-05-2019",
+              "ScanTime": "1425",
+              "ScannedLocation": "GOREGAON",
+              "ScanType": "DL",
+              "Comments": "tatacliq_order",
+              "ScannedLocationCode": "GOR",
+              "ScannedLocationCity": "MUMBAI",
+              "ScannedLocationStateCode": "MH",
+              "StatusTimeZone": "IST",
+              "StatusLatitude": "19.139593333333334",
+              "StatusLongitude": "72.86305666666667",
+              "SorryCardNumber": "",
+              "ReachedDestinationLocation": "Y",
+              "SecureCode": ""
+            }
+          ],
+          "DeliveryDetails": {
+            "IDNumber": "",
+            "IDType": "",
+            "ReceivedBy": "RASHMI",
+            "Relation": "",
+            "SecurityCodeDelivery": "",
+            "Signature": "",
+            "IDImage": ""
+          },
+          "Reweigh": {
+            "MPSNumber": "",
+            "RWActualWeight": "",
+            "RWLength": "",
+            "RWBreadth": "",
+            "RWHeight": "",
+            "RWVolWeight": ""
+          }
+        }
+      }
+    }
+  ]
+}
+
