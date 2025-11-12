@@ -1,4 +1,5 @@
-const pool = require('../config/database');
+const pool = require("../config/database");
+const { saveBase64Images, saveBase64Image } = require("../utils/imageHandler");
 
 /**
  * Blue Dart Webhook Status Endpoint
@@ -8,53 +9,63 @@ const processStatusWebhook = async (req, res) => {
   const startTime = Date.now();
   let processedShipments = [];
   let errors = [];
-  
+
   // Set timeout to prevent hanging requests (30 seconds)
   req.setTimeout(30000, () => {
     if (!res.headersSent) {
       res.status(504).json({
         success: false,
-        message: 'Request timeout'
+        message: "Request timeout",
       });
     }
   });
-  
+
   try {
     const { statustracking } = req.body;
     const clientIP = req.ip || req.connection.remoteAddress;
-    const clientId = req.clientId || req.headers['client-id'];
-    
-    console.log(`📥 Received webhook: ${statustracking?.length || 0} shipment(s)`);
-    
+    const clientId = req.clientId || req.headers["client-id"];
+
+    console.log(
+      `📥 Received webhook: ${statustracking?.length || 0} shipment(s)`
+    );
+
     // Validate payload structure
     if (!statustracking || !Array.isArray(statustracking)) {
       // Log invalid payload
-      await logWebhookAudit(null, 400, 'Invalid payload: statustracking array missing', null, clientIP, clientId, req.body);
-      
+      await logWebhookAudit(
+        null,
+        400,
+        "Invalid payload: statustracking array missing",
+        null,
+        clientIP,
+        clientId,
+        req.body
+      );
+
       return res.status(400).json({
         success: false,
-        message: 'Invalid payload: statustracking array is required'
+        message: "Invalid payload: statustracking array is required",
       });
     }
-    
+
     // Process each shipment in the array
     for (const entry of statustracking) {
       try {
         const shipment = entry.Shipment;
-        
+
         if (!shipment || !shipment.WaybillNo) {
-          errors.push({ error: 'Missing Shipment or WaybillNo', entry });
+          errors.push({ error: "Missing Shipment or WaybillNo", entry });
           continue;
         }
-        
+
         // 1️⃣ Insert or update shipment
         const [existing] = await pool.execute(
-          'SELECT id FROM shipments WHERE waybill_no = ?',
+          "SELECT id FROM shipments WHERE waybill_no = ?",
           [shipment.WaybillNo]
         );
-        
+
         let shipmentId;
-        
+
         if (existing.length === 0) {
           // Insert new shipment
           const [result] = await pool.execute(
@@ -88,7 +99,7 @@ const processStatusWebhook = async (req, res) => {
         } else {
           // Update existing shipment
           shipmentId = existing[0].id;
-          
+
           // Update shipment fields if provided
           await pool.execute(
             `UPDATE shipments SET
@@ -99,15 +110,15 @@ const processStatusWebhook = async (req, res) => {
             [
               shipment.ExpectedDeliveryDate || null,
               shipment.DynamicExpectedDeliveryDate || null,
-              shipmentId
+              shipmentId,
             ]
           );
         }
-        
+
         // 2️⃣ Insert scans
         // Handle both Push API Lite and Plus formats
         let scansToProcess = [];
-        
+
         // Push API Lite: Scan data directly on Shipment object
         if (shipment.Scan || shipment.ScanCode) {
           scansToProcess.push({
@@ -132,19 +143,19 @@ const processStatusWebhook = async (req, res) => {
             IDType: null,
             IDNumber: null,
             QCType: null,
-            QCReason: null
+            QCReason: null,
           });
         }
-        
+
         // Push API Plus: Scan data in Scans.ScanDetail array
         if (shipment.Scans && shipment.Scans.ScanDetail) {
-          const scanDetails = Array.isArray(shipment.Scans.ScanDetail) 
-            ? shipment.Scans.ScanDetail 
+          const scanDetails = Array.isArray(shipment.Scans.ScanDetail)
+            ? shipment.Scans.ScanDetail
             : [shipment.Scans.ScanDetail];
-          
+
           scansToProcess.push(...scanDetails);
         }
-        
+
         // Process all scans
         for (const scan of scansToProcess) {
           // Check if scan already exists (avoid duplicates)
@@ -155,10 +166,10 @@ const processStatusWebhook = async (req, res) => {
               shipmentId,
               scan.ScanCode || null,
               scan.ScanDate || null,
-              scan.ScanTime || null
+              scan.ScanTime || null,
             ]
           );
-          
+
           if (existingScan.length === 0) {
             await pool.execute(
               `INSERT INTO scans (
@@ -196,17 +207,45 @@ const processStatusWebhook = async (req, res) => {
             );
           }
         }
-        
+
         // 3️⃣ Insert delivery details (Push API Plus only)
         if (shipment.Scans && shipment.Scans.DeliveryDetails) {
           const deliveryDetails = shipment.Scans.DeliveryDetails;
-          
+
+          // Save ID Image as file if provided (base64)
+          let idImagePath = null;
+          if (
+            deliveryDetails.IDImage &&
+            deliveryDetails.IDImage.trim() !== ""
+          ) {
+            idImagePath = saveBase64Image(
+              deliveryDetails.IDImage,
+              shipment.WaybillNo,
+              "id",
+              0
+            );
+          }
+
+          // Save Signature as file if provided (base64)
+          let signaturePath = null;
+          if (
+            deliveryDetails.Signature &&
+            deliveryDetails.Signature.trim() !== ""
+          ) {
+            signaturePath = saveBase64Image(
+              deliveryDetails.Signature,
+              shipment.WaybillNo,
+              "signature",
+              0
+            );
+          }
+
           // Check if delivery details already exist
           const [existingDelivery] = await pool.execute(
-            'SELECT id FROM delivery_details WHERE shipment_id = ?',
+            "SELECT id FROM delivery_details WHERE shipment_id = ?",
             [shipmentId]
           );
-          
+
           if (existingDelivery.length === 0) {
             await pool.execute(
               `INSERT INTO delivery_details (
@@ -220,8 +259,8 @@ const processStatusWebhook = async (req, res) => {
                 deliveryDetails.IDType || null,
                 deliveryDetails.IDNumber || null,
                 deliveryDetails.SecurityCodeDelivery || null,
-                deliveryDetails.Signature || null,
-                deliveryDetails.IDImage || null
+                signaturePath || null,
+                idImagePath || null,
               ]
             );
           } else {
@@ -242,85 +281,258 @@ const processStatusWebhook = async (req, res) => {
                 deliveryDetails.IDType || null,
                 deliveryDetails.IDNumber || null,
                 deliveryDetails.SecurityCodeDelivery || null,
-                deliveryDetails.Signature || null,
-                deliveryDetails.IDImage || null,
-                shipmentId
+                signaturePath || null,
+                idImagePath || null,
+                shipmentId,
               ]
             );
           }
         }
-        
+
         // 4️⃣ Insert reweigh information (Push API Plus only)
+        // Handle both object and array formats
         if (shipment.Scans && shipment.Scans.Reweigh) {
-          const reweigh = shipment.Scans.Reweigh;
-          
-          // Check if reweigh already exists
-          const [existingReweigh] = await pool.execute(
-            'SELECT id FROM reweigh WHERE shipment_id = ?',
+          const reweighData = shipment.Scans.Reweigh;
+          // Handle both array and object formats
+          const reweighArray = Array.isArray(reweighData)
+            ? reweighData
+            : [reweighData];
+
+          for (const reweigh of reweighArray) {
+            if (
+              !reweigh ||
+              (typeof reweigh === "object" && Object.keys(reweigh).length === 0)
+            ) {
+              continue; // Skip empty objects/arrays
+            }
+
+            // Check if reweigh already exists
+            const [existingReweigh] = await pool.execute(
+              "SELECT id FROM reweigh WHERE shipment_id = ? AND mps_number = ?",
+              [shipmentId, reweigh.MPSNumber || ""]
+            );
+
+            if (existingReweigh.length === 0) {
+              await pool.execute(
+                `INSERT INTO reweigh (
+                  shipment_id, mps_number, rw_actual_weight, rw_length, 
+                  rw_breadth, rw_height, rw_vol_weight
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  shipmentId,
+                  reweigh.MPSNumber || null,
+                  reweigh.RWActualWeight && reweigh.RWActualWeight !== ""
+                    ? parseFloat(reweigh.RWActualWeight)
+                    : null,
+                  reweigh.RWLength && reweigh.RWLength !== ""
+                    ? parseFloat(reweigh.RWLength)
+                    : null,
+                  reweigh.RWBreadth && reweigh.RWBreadth !== ""
+                    ? parseFloat(reweigh.RWBreadth)
+                    : null,
+                  reweigh.RWHeight && reweigh.RWHeight !== ""
+                    ? parseFloat(reweigh.RWHeight)
+                    : null,
+                  reweigh.RWVolWeight && reweigh.RWVolWeight !== ""
+                    ? parseFloat(reweigh.RWVolWeight)
+                    : null,
+                ]
+              );
+            } else {
+              // Update existing reweigh
+              await pool.execute(
+                `UPDATE reweigh SET
+                  rw_actual_weight = COALESCE(?, rw_actual_weight),
+                  rw_length = COALESCE(?, rw_length),
+                  rw_breadth = COALESCE(?, rw_breadth),
+                  rw_height = COALESCE(?, rw_height),
+                  rw_vol_weight = COALESCE(?, rw_vol_weight)
+                WHERE shipment_id = ? AND mps_number = ?`,
+                [
+                  reweigh.RWActualWeight && reweigh.RWActualWeight !== ""
+                    ? parseFloat(reweigh.RWActualWeight)
+                    : null,
+                  reweigh.RWLength && reweigh.RWLength !== ""
+                    ? parseFloat(reweigh.RWLength)
+                    : null,
+                  reweigh.RWBreadth && reweigh.RWBreadth !== ""
+                    ? parseFloat(reweigh.RWBreadth)
+                    : null,
+                  reweigh.RWHeight && reweigh.RWHeight !== ""
+                    ? parseFloat(reweigh.RWHeight)
+                    : null,
+                  reweigh.RWVolWeight && reweigh.RWVolWeight !== ""
+                    ? parseFloat(reweigh.RWVolWeight)
+                    : null,
+                  shipmentId,
+                  reweigh.MPSNumber || "",
+                ]
+              );
+            }
+          }
+        }
+
+        // 5️⃣ Insert QC Failed information (Push API Plus)
+        if (shipment.Scans && shipment.Scans.QCFailed) {
+          const qcFailed = shipment.Scans.QCFailed;
+
+          // Save QC pictures as files if provided
+          let picturePaths = [];
+          if (
+            qcFailed.Pictures &&
+            Array.isArray(qcFailed.Pictures) &&
+            qcFailed.Pictures.length > 0
+          ) {
+            picturePaths = saveBase64Images(
+              qcFailed.Pictures,
+              shipment.WaybillNo,
+              "qc"
+            );
+          }
+
+          // Check if QC failed already exists
+          const [existingQC] = await pool.execute(
+            "SELECT id FROM qc_failed WHERE shipment_id = ?",
             [shipmentId]
           );
-          
-          if (existingReweigh.length === 0) {
+
+          if (existingQC.length === 0) {
             await pool.execute(
-              `INSERT INTO reweigh (
-                shipment_id, mps_number, rw_actual_weight, rw_length, 
-                rw_breadth, rw_height, rw_vol_weight
-              ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO qc_failed (
+                shipment_id, qc_type, qc_reason, pictures
+              ) VALUES (?, ?, ?, ?)`,
               [
                 shipmentId,
-                reweigh.MPSNumber || null,
-                (reweigh.RWActualWeight && reweigh.RWActualWeight !== '') ? parseFloat(reweigh.RWActualWeight) : null,
-                (reweigh.RWLength && reweigh.RWLength !== '') ? parseFloat(reweigh.RWLength) : null,
-                (reweigh.RWBreadth && reweigh.RWBreadth !== '') ? parseFloat(reweigh.RWBreadth) : null,
-                (reweigh.RWHeight && reweigh.RWHeight !== '') ? parseFloat(reweigh.RWHeight) : null,
-                (reweigh.RWVolWeight && reweigh.RWVolWeight !== '') ? parseFloat(reweigh.RWVolWeight) : null
+                qcFailed.Type || null,
+                qcFailed.Reason || null,
+                picturePaths.length > 0 ? JSON.stringify(picturePaths) : null,
               ]
             );
           } else {
-            // Update existing reweigh
+            // Update existing QC failed
             await pool.execute(
-              `UPDATE reweigh SET
-                mps_number = COALESCE(?, mps_number),
-                rw_actual_weight = COALESCE(?, rw_actual_weight),
-                rw_length = COALESCE(?, rw_length),
-                rw_breadth = COALESCE(?, rw_breadth),
-                rw_height = COALESCE(?, rw_height),
-                rw_vol_weight = COALESCE(?, rw_vol_weight)
+              `UPDATE qc_failed SET
+                qc_type = COALESCE(?, qc_type),
+                qc_reason = COALESCE(?, qc_reason),
+                pictures = COALESCE(?, pictures)
               WHERE shipment_id = ?`,
               [
-                reweigh.MPSNumber || null,
-                (reweigh.RWActualWeight && reweigh.RWActualWeight !== '') ? parseFloat(reweigh.RWActualWeight) : null,
-                (reweigh.RWLength && reweigh.RWLength !== '') ? parseFloat(reweigh.RWLength) : null,
-                (reweigh.RWBreadth && reweigh.RWBreadth !== '') ? parseFloat(reweigh.RWBreadth) : null,
-                (reweigh.RWHeight && reweigh.RWHeight !== '') ? parseFloat(reweigh.RWHeight) : null,
-                (reweigh.RWVolWeight && reweigh.RWVolWeight !== '') ? parseFloat(reweigh.RWVolWeight) : null,
-                shipmentId
+                qcFailed.Type || null,
+                qcFailed.Reason || null,
+                picturePaths.length > 0 ? JSON.stringify(picturePaths) : null,
+                shipmentId,
               ]
             );
           }
         }
-        
+
+        // 6️⃣ Insert Call Logs (Push API Plus)
+        if (
+          shipment.Scans &&
+          shipment.Scans.CallLogs &&
+          Array.isArray(shipment.Scans.CallLogs) &&
+          shipment.Scans.CallLogs.length > 0
+        ) {
+          // Store all call logs as JSON
+          await pool.execute(
+            `INSERT INTO call_logs (
+              shipment_id, log_data
+            ) VALUES (?, ?)`,
+            [shipmentId, JSON.stringify(shipment.Scans.CallLogs)]
+          );
+        }
+
+        // 7️⃣ Insert POD/DC Images (Push API Plus)
+        if (shipment.Scans && shipment.Scans.PODDCImages) {
+          const podDcImages = shipment.Scans.PODDCImages;
+
+          // Save POD images as files if provided
+          let podImagePaths = [];
+          if (
+            podDcImages.PODImage &&
+            Array.isArray(podDcImages.PODImage) &&
+            podDcImages.PODImage.length > 0
+          ) {
+            podImagePaths = saveBase64Images(
+              podDcImages.PODImage,
+              shipment.WaybillNo,
+              "pod"
+            );
+          }
+
+          // Save DC images as files if provided
+          let dcImagePaths = [];
+          if (
+            podDcImages.DCImage &&
+            Array.isArray(podDcImages.DCImage) &&
+            podDcImages.DCImage.length > 0
+          ) {
+            dcImagePaths = saveBase64Images(
+              podDcImages.DCImage,
+              shipment.WaybillNo,
+              "dc"
+            );
+          }
+
+          // Check if POD/DC images already exist
+          const [existingPODDC] = await pool.execute(
+            "SELECT id FROM pod_dc_images WHERE shipment_id = ?",
+            [shipmentId]
+          );
+
+          if (existingPODDC.length === 0) {
+            await pool.execute(
+              `INSERT INTO pod_dc_images (
+                shipment_id, pod_images, dc_images, image_sequence
+              ) VALUES (?, ?, ?, ?)`,
+              [
+                shipmentId,
+                podImagePaths.length > 0 ? JSON.stringify(podImagePaths) : null,
+                dcImagePaths.length > 0 ? JSON.stringify(dcImagePaths) : null,
+                podDcImages.Imagesequence || null,
+              ]
+            );
+          } else {
+            // Update existing POD/DC images
+            await pool.execute(
+              `UPDATE pod_dc_images SET
+                pod_images = COALESCE(?, pod_images),
+                dc_images = COALESCE(?, dc_images),
+                image_sequence = COALESCE(?, image_sequence)
+              WHERE shipment_id = ?`,
+              [
+                podImagePaths.length > 0 ? JSON.stringify(podImagePaths) : null,
+                dcImagePaths.length > 0 ? JSON.stringify(dcImagePaths) : null,
+                podDcImages.Imagesequence || null,
+                shipmentId,
+              ]
+            );
+          }
+        }
+
         processedShipments.push({
           waybill_no: shipment.WaybillNo,
           shipment_id: shipmentId,
-          status: 'processed'
+          status: "processed",
         });
-        
       } catch (entryError) {
         console.error(`❌ Error processing shipment entry:`, entryError);
-        console.error(`   Waybill: ${entry.Shipment?.WaybillNo || 'unknown'}`);
+        console.error(`   Waybill: ${entry.Shipment?.WaybillNo || "unknown"}`);
         console.error(`   Error details:`, {
           message: entryError.message,
-          stack: process.env.NODE_ENV === 'development' ? entryError.stack : undefined
+          stack:
+            process.env.NODE_ENV === "development"
+              ? entryError.stack
+              : undefined,
         });
         errors.push({
-          waybill_no: entry.Shipment?.WaybillNo || 'unknown',
-          error: entryError.message
+          waybill_no: entry.Shipment?.WaybillNo || "unknown",
+          error: entryError.message,
         });
         // Continue processing other shipments even if one fails
       }
     }
-    
+
     // Log successful processing
     const processingTime = Date.now() - startTime;
     await logWebhookAudit(
@@ -332,21 +544,23 @@ const processStatusWebhook = async (req, res) => {
       clientId,
       req.body
     );
-    
+
     // Return success response (200 OK is critical for Blue Dart retry logic)
     res.status(200).json({
       success: true,
-      message: 'Webhook processed successfully',
+      message: "Webhook processed successfully",
       processed: processedShipments.length,
       shipments: processedShipments,
-      ...(errors.length > 0 && { errors })
+      ...(errors.length > 0 && { errors }),
     });
-    
   } catch (error) {
-    console.error('❌ Webhook processing error:', error);
-    console.error('   Error message:', error.message);
-    console.error('   Error stack:', process.env.NODE_ENV === 'development' ? error.stack : 'hidden');
-    
+    console.error("❌ Webhook processing error:", error);
+    console.error("   Error message:", error.message);
+    console.error(
+      "   Error stack:",
+      process.env.NODE_ENV === "development" ? error.stack : "hidden"
+    );
+
     // Only log if response hasn't been sent
     if (!res.headersSent) {
       try {
@@ -354,21 +568,24 @@ const processStatusWebhook = async (req, res) => {
         await logWebhookAudit(
           null,
           500,
-          'Server error',
+          "Server error",
           error.message,
           req.ip || req.connection.remoteAddress,
-          req.clientId || req.headers['client-id'],
+          req.clientId || req.headers["client-id"],
           req.body
         );
       } catch (logError) {
-        console.error('Failed to log webhook audit:', logError);
+        console.error("Failed to log webhook audit:", logError);
       }
-      
+
       // Return 500 error (Blue Dart will retry)
       res.status(500).json({
         success: false,
-        message: 'Server error processing webhook',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        message: "Server error processing webhook",
+        error:
+          process.env.NODE_ENV === "development"
+            ? error.message
+            : "Internal server error",
       });
     }
   }
@@ -377,7 +594,15 @@ const processStatusWebhook = async (req, res) => {
 /**
  * Log webhook audit trail
  */
-const logWebhookAudit = async (waybillNo, responseStatus, responseMessage, errorMessage, clientIP, clientId, payload) => {
+const logWebhookAudit = async (
+  waybillNo,
+  responseStatus,
+  responseMessage,
+  errorMessage,
+  clientIP,
+  clientId,
+  payload
+) => {
   try {
     await pool.execute(
       `INSERT INTO webhook_audit_log (
@@ -390,11 +615,11 @@ const logWebhookAudit = async (waybillNo, responseStatus, responseMessage, error
         responseMessage,
         errorMessage,
         clientIP,
-        clientId
+        clientId,
       ]
     );
   } catch (logError) {
-    console.error('Error logging webhook audit:', logError);
+    console.error("Error logging webhook audit:", logError);
   }
 };
 
@@ -404,54 +629,58 @@ const logWebhookAudit = async (waybillNo, responseStatus, responseMessage, error
 const getShipmentByWaybill = async (req, res) => {
   try {
     const { waybillNo } = req.params;
-    
+
     const [shipments] = await pool.execute(
-      'SELECT * FROM shipments WHERE waybill_no = ?',
+      "SELECT * FROM shipments WHERE waybill_no = ?",
       [waybillNo]
     );
-    
+
     if (shipments.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Shipment not found'
+        message: "Shipment not found",
       });
     }
-    
+
     const shipment = shipments[0];
-    
+
     // Get scans for this shipment
     const [scans] = await pool.execute(
-      'SELECT * FROM scans WHERE shipment_id = ? ORDER BY scan_date DESC, scan_time DESC',
+      "SELECT * FROM scans WHERE shipment_id = ? ORDER BY scan_date DESC, scan_time DESC",
       [shipment.id]
     );
-    
+
     // Get delivery details
     const [deliveryDetails] = await pool.execute(
-      'SELECT * FROM delivery_details WHERE shipment_id = ? ORDER BY created_at DESC LIMIT 1',
+      "SELECT * FROM delivery_details WHERE shipment_id = ? ORDER BY created_at DESC LIMIT 1",
       [shipment.id]
     );
-    
+
     // Get reweigh information
     const [reweigh] = await pool.execute(
-      'SELECT * FROM reweigh WHERE shipment_id = ? ORDER BY created_at DESC LIMIT 1',
+      "SELECT * FROM reweigh WHERE shipment_id = ? ORDER BY created_at DESC LIMIT 1",
       [shipment.id]
     );
-    
+
     res.json({
       success: true,
       data: {
         ...shipment,
         scans: scans,
-        delivery_details: deliveryDetails.length > 0 ? deliveryDetails[0] : null,
-        reweigh: reweigh.length > 0 ? reweigh[0] : null
-      }
+        delivery_details:
+          deliveryDetails.length > 0 ? deliveryDetails[0] : null,
+        reweigh: reweigh.length > 0 ? reweigh[0] : null,
+      },
     });
   } catch (error) {
-    console.error('Error fetching shipment:', error);
+    console.error("Error fetching shipment:", error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching shipment',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      message: "Error fetching shipment",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : "Internal server error",
     });
   }
 };
@@ -463,42 +692,42 @@ const getAllShipments = async (req, res) => {
   try {
     const { page = 1, limit = 50, waybill_no, ref_no } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    let query = 'SELECT * FROM shipments WHERE 1=1';
+
+    let query = "SELECT * FROM shipments WHERE 1=1";
     const params = [];
-    
+
     if (waybill_no) {
-      query += ' AND waybill_no LIKE ?';
+      query += " AND waybill_no LIKE ?";
       params.push(`%${waybill_no}%`);
     }
-    
+
     if (ref_no) {
-      query += ' AND ref_no LIKE ?';
+      query += " AND ref_no LIKE ?";
       params.push(`%${ref_no}%`);
     }
-    
-    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
     params.push(parseInt(limit), offset);
-    
+
     const [shipments] = await pool.execute(query, params);
-    
+
     // Get total count
-    let countQuery = 'SELECT COUNT(*) as total FROM shipments WHERE 1=1';
+    let countQuery = "SELECT COUNT(*) as total FROM shipments WHERE 1=1";
     const countParams = [];
-    
+
     if (waybill_no) {
-      countQuery += ' AND waybill_no LIKE ?';
+      countQuery += " AND waybill_no LIKE ?";
       countParams.push(`%${waybill_no}%`);
     }
-    
+
     if (ref_no) {
-      countQuery += ' AND ref_no LIKE ?';
+      countQuery += " AND ref_no LIKE ?";
       countParams.push(`%${ref_no}%`);
     }
-    
+
     const [countResult] = await pool.execute(countQuery, countParams);
     const total = countResult[0].total;
-    
+
     res.json({
       success: true,
       data: shipments,
@@ -506,15 +735,18 @@ const getAllShipments = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+        pages: Math.ceil(total / parseInt(limit)),
+      },
     });
   } catch (error) {
-    console.error('Error fetching shipments:', error);
+    console.error("Error fetching shipments:", error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching shipments',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      message: "Error fetching shipments",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : "Internal server error",
     });
   }
 };
@@ -522,6 +754,5 @@ const getAllShipments = async (req, res) => {
 module.exports = {
   processStatusWebhook,
   getShipmentByWaybill,
-  getAllShipments
+  getAllShipments,
 };
-
