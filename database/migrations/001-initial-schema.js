@@ -5,9 +5,8 @@
 
 module.exports = {
   up: async (db) => {
-    // Create database if it doesn't exist
-    await db.query('CREATE DATABASE IF NOT EXISTS bluedart_db');
-    await db.query('USE bluedart_db');
+    // Note: Database selection is handled by migrate.js
+    // Tables will be created in the database specified in DB_NAME environment variable
 
     // Shipments table
     await db.query(`
@@ -129,20 +128,19 @@ module.exports = {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    console.log('✅ Initial schema migration completed');
+    console.log("✅ Initial schema migration completed");
   },
 
   down: async (db) => {
-    await db.query('USE bluedart_db');
-    
-    await db.query('DROP TABLE IF EXISTS webhook_audit_log');
-    await db.query('DROP TABLE IF EXISTS reweigh');
-    await db.query('DROP TABLE IF EXISTS delivery_details');
-    await db.query('DROP TABLE IF EXISTS scans');
-    await db.query('DROP TABLE IF EXISTS shipments');
+    // Note: Database selection is handled by migrate.js
+    // Tables will be dropped from the database specified in DB_NAME environment variable
 
-    console.log('✅ Initial schema rollback completed');
-  }
+    await db.query("DROP TABLE IF EXISTS webhook_audit_log");
+    await db.query("DROP TABLE IF EXISTS reweigh");
+    await db.query("DROP TABLE IF EXISTS delivery_details");
+    await db.query("DROP TABLE IF EXISTS scans");
+    await db.query("DROP TABLE IF EXISTS shipments");
+
+    console.log("✅ Initial schema rollback completed");
+  },
 };
-
-

@@ -71,6 +71,7 @@ async function migrate(direction = 'up') {
     connection = await mysql.createConnection(tempConfig);
     
     // Create database if it doesn't exist
+    console.log(`📦 Using database: ${dbConfig.database}`);
     await connection.query(`CREATE DATABASE IF NOT EXISTS ${dbConfig.database}`);
     await connection.query(`USE ${dbConfig.database}`);
     

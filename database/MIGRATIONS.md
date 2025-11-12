@@ -5,12 +5,14 @@ This project uses a custom migration system to manage database schema changes.
 ## Overview
 
 Migrations are stored in `database/migrations/` directory. Each migration file exports `up` and `down` functions:
+
 - `up`: Applies the migration (creates/modifies tables)
 - `down`: Rolls back the migration (removes/reverts changes)
 
 ## Migration Files
 
 Migration files are named with a number prefix and description:
+
 - `001-initial-schema.js` - Initial database schema
 - `002-add-new-column.js` - Example: Adding a new column
 - etc.
@@ -18,6 +20,7 @@ Migration files are named with a number prefix and description:
 ## Commands
 
 ### Run Pending Migrations
+
 ```bash
 npm run migrate
 ```
@@ -25,6 +28,7 @@ npm run migrate
 This will run all pending migrations in order.
 
 ### Rollback Last Migration
+
 ```bash
 npm run migrate:down
 ```
@@ -32,6 +36,7 @@ npm run migrate:down
 This will rollback the most recently applied migration.
 
 ### List Migration Status
+
 ```bash
 npm run migrate:list
 ```
@@ -41,24 +46,26 @@ Shows which migrations have been applied and which are pending.
 ## Creating a New Migration
 
 1. Create a new file in `database/migrations/` with the next sequential number:
+
    ```bash
    # Example: database/migrations/002-add-index-to-shipments.js
    ```
 
 2. Use this template:
+
    ```javascript
    module.exports = {
      up: async (db) => {
        // Your migration SQL here
-       await db.query('ALTER TABLE shipments ADD COLUMN new_field VARCHAR(50)');
-       console.log('✅ Migration completed');
+       await db.query("ALTER TABLE shipments ADD COLUMN new_field VARCHAR(50)");
+       console.log("✅ Migration completed");
      },
-     
+
      down: async (db) => {
        // Rollback SQL here
-       await db.query('ALTER TABLE shipments DROP COLUMN new_field');
-       console.log('✅ Rollback completed');
-     }
+       await db.query("ALTER TABLE shipments DROP COLUMN new_field");
+       console.log("✅ Rollback completed");
+     },
    };
    ```
 
@@ -91,23 +98,26 @@ module.exports = {
       ADD COLUMN status VARCHAR(20) DEFAULT 'pending' AFTER waybill_no,
       ADD INDEX idx_status (status)
     `);
-    console.log('✅ Added status column to shipments table');
+    console.log("✅ Added status column to shipments table");
   },
-  
+
   down: async (db) => {
-    await db.query('ALTER TABLE shipments DROP COLUMN status');
-    console.log('✅ Removed status column from shipments table');
-  }
+    await db.query("ALTER TABLE shipments DROP COLUMN status");
+    console.log("✅ Removed status column from shipments table");
+  },
 };
 ```
 
 ## Troubleshooting
 
 ### Migration fails mid-way
+
 If a migration fails, fix the issue and run `npm run migrate` again. The system will only run pending migrations.
 
 ### Need to reset all migrations
+
 If you need to start fresh (development only):
+
 ```sql
 DROP TABLE IF EXISTS migrations;
 -- Then run migrations again
@@ -115,6 +125,7 @@ npm run migrate
 ```
 
 ### Check migration status
+
 ```bash
 npm run migrate:list
 ```
@@ -129,6 +140,7 @@ For production deployments:
 4. Consider running migrations during a maintenance window for large changes
 
 Example deployment script:
+
 ```bash
 # Backup database
 mysqldump -u root -p bluedart_db > backup_$(date +%Y%m%d_%H%M%S).sql
@@ -139,5 +151,3 @@ npm run migrate
 # Verify migration status
 npm run migrate:list
 ```
-
-
