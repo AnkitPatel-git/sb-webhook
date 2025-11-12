@@ -13,7 +13,10 @@
     "pm2:delete": "pm2 delete bluedart-webhook-api",
     "pm2:logs": "pm2 logs bluedart-webhook-api",
     "pm2:monit": "pm2 monit",
-    "pm2:status": "pm2 status"
+    "pm2:status": "pm2 status",
+    "migrate": "node database/migrate.js up",
+    "migrate:down": "node database/migrate.js down",
+    "migrate:list": "node database/migrate.js list"
   },
   "keywords": [
     "bluedart",
