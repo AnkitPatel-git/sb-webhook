@@ -60,18 +60,17 @@ sb-webhook/
 
 2. **Set up environment variables**
    
-   Create a `.env` file (see `ENV_SETUP.md` for template):
-   ```env
-   PORT=3000
-   NODE_ENV=development
-   DB_HOST=localhost
-   DB_PORT=3306
-   DB_USER=root
-   DB_PASSWORD=your_password
-   DB_NAME=bluedart_db
-   BLUEDART_CLIENT_ID=stagingID
-   BLUEDART_TOKEN=your-test-token
+   Copy the example environment file and update with your values:
+   ```bash
+   cp env.example .env
    ```
+   
+   Then edit `.env` and update:
+   - Database credentials (DB_PASSWORD, DB_NAME, etc.)
+   - Blue Dart credentials (BLUEDART_CLIENT_ID, BLUEDART_TOKEN)
+   - Server port and environment settings
+   
+   See `ENV_SETUP.md` for detailed instructions.
 
 3. **Set up the database**
    ```bash
