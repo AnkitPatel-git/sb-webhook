@@ -42,8 +42,14 @@ sb-webhook/
 ├── routes/
 │   └── bluedartRoutes.js        # Blue Dart API routes
 ├── database/
-│   └── schema.sql               # Database schema
+│   ├── schema.sql               # Database schema
+│   ├── migrate.js               # Migration runner
+│   └── migrations/              # Database migrations
 ├── .env                         # Environment variables (create this)
+├── env.example                  # Environment variables template
+├── BLUEDART_CREDENTIALS.md      # Credentials documentation (internal)
+├── BLUEDART_CREDENTIALS_TO_SHARE.md  # Document to share with Blue Dart
+├── BLUEDART_SETUP_TEMPLATE.md   # Setup template
 ├── .gitignore
 ├── package.json
 ├── server.js                    # Main server file
@@ -73,9 +79,18 @@ sb-webhook/
    See `ENV_SETUP.md` for detailed instructions.
 
 3. **Set up the database**
+   
+   **Option 1: Using Migrations (Recommended)**
+   ```bash
+   npm run migrate
+   ```
+   
+   **Option 2: Using SQL Schema File**
    ```bash
    mysql -u root -p < database/schema.sql
    ```
+   
+   See `database/MIGRATIONS.md` for migration documentation.
 
 ## 🏃 Running the Application
 
@@ -164,6 +179,25 @@ The webhook endpoint requires authentication via headers:
 These are validated against environment variables:
 - `BLUEDART_CLIENT_ID`
 - `BLUEDART_TOKEN`
+
+### Credentials
+
+**IMPORTANT:** You will provide these credentials TO Blue Dart. Blue Dart will use them in HTTP headers when calling your webhook.
+
+**Test/Staging:**
+- Header `client-id`: `stagingID`
+- Header `token`: `[Your staging password - set this value]`
+
+**Production:**
+- Header `client-id`: `LiveID`
+- Header `token`: `[Your production password - set this value]`
+
+**Steps:**
+1. Set your passwords in `.env` file
+2. Share credentials with Blue Dart using `BLUEDART_CREDENTIALS_TO_SHARE.md`
+3. Blue Dart will authenticate using these credentials in headers
+
+See `BLUEDART_CREDENTIALS.md` and `BLUEDART_CREDENTIALS_TO_SHARE.md` for details.
 
 ## 🛡️ IP Whitelisting (Production)
 

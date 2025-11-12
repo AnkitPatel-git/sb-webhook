@@ -9,11 +9,11 @@ module.exports = {
       max_memory_restart: "500M", // Restart if memory exceeds 500MB
       env: {
         NODE_ENV: "production",
-        PORT: 3000,
+        PORT: 3010,
       },
       env_development: {
         NODE_ENV: "development",
-        PORT: 3000,
+        PORT: 3011,
       },
       error_file: "./logs/pm2-error.log",
       out_file: "./logs/pm2-out.log",
