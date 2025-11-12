@@ -21,6 +21,19 @@ app.set('trust proxy', true);
 // Request logging middleware
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
+  
+  // Log headers for debugging (only for Blue Dart routes in development)
+  if (process.env.NODE_ENV === 'development' && req.path.includes('/api/bluedart')) {
+    console.log('📋 Request Headers:', {
+      'client-id': req.headers['client-id'],
+      'client_id': req.headers['client_id'],
+      'license key': req.headers['license key'],
+      'license-key': req.headers['license-key'],
+      'License Key': req.headers['License Key'],
+      'content-type': req.headers['content-type'],
+      'user-agent': req.headers['user-agent']
+    });
+  }
   next();
 });
 

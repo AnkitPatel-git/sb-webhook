@@ -9,7 +9,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const CLIENT_ID = process.env.BLUEDART_CLIENT_ID || 'stagingID';
-const TOKEN = process.env.BLUEDART_TOKEN || 'your-test-token';
+const LICENSE_KEY = process.env.BLUEDART_LICENSE_KEY || process.env.BLUEDART_TOKEN || 'your-test-token';
 
 // Read sample payload
 const samplePayload = JSON.parse(
@@ -27,7 +27,7 @@ const options = {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(postData),
     'client-id': CLIENT_ID,
-    'token': TOKEN
+    'License Key': LICENSE_KEY
   }
 };
 
