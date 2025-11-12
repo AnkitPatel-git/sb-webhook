@@ -9,10 +9,22 @@ const processStatusWebhook = async (req, res) => {
   let processedShipments = [];
   let errors = [];
   
+  // Set timeout to prevent hanging requests (30 seconds)
+  req.setTimeout(30000, () => {
+    if (!res.headersSent) {
+      res.status(504).json({
+        success: false,
+        message: 'Request timeout'
+      });
+    }
+  });
+  
   try {
     const { statustracking } = req.body;
     const clientIP = req.ip || req.connection.remoteAddress;
     const clientId = req.clientId || req.headers['client-id'];
+    
+    console.log(`📥 Received webhook: ${statustracking?.length || 0} shipment(s)`);
     
     // Validate payload structure
     if (!statustracking || !Array.isArray(statustracking)) {
@@ -257,11 +269,11 @@ const processStatusWebhook = async (req, res) => {
               [
                 shipmentId,
                 reweigh.MPSNumber || null,
-                reweigh.RWActualWeight ? parseFloat(reweigh.RWActualWeight) : null,
-                reweigh.RWLength ? parseFloat(reweigh.RWLength) : null,
-                reweigh.RWBreadth ? parseFloat(reweigh.RWBreadth) : null,
-                reweigh.RWHeight ? parseFloat(reweigh.RWHeight) : null,
-                reweigh.RWVolWeight ? parseFloat(reweigh.RWVolWeight) : null
+                (reweigh.RWActualWeight && reweigh.RWActualWeight !== '') ? parseFloat(reweigh.RWActualWeight) : null,
+                (reweigh.RWLength && reweigh.RWLength !== '') ? parseFloat(reweigh.RWLength) : null,
+                (reweigh.RWBreadth && reweigh.RWBreadth !== '') ? parseFloat(reweigh.RWBreadth) : null,
+                (reweigh.RWHeight && reweigh.RWHeight !== '') ? parseFloat(reweigh.RWHeight) : null,
+                (reweigh.RWVolWeight && reweigh.RWVolWeight !== '') ? parseFloat(reweigh.RWVolWeight) : null
               ]
             );
           } else {
@@ -277,11 +289,11 @@ const processStatusWebhook = async (req, res) => {
               WHERE shipment_id = ?`,
               [
                 reweigh.MPSNumber || null,
-                reweigh.RWActualWeight ? parseFloat(reweigh.RWActualWeight) : null,
-                reweigh.RWLength ? parseFloat(reweigh.RWLength) : null,
-                reweigh.RWBreadth ? parseFloat(reweigh.RWBreadth) : null,
-                reweigh.RWHeight ? parseFloat(reweigh.RWHeight) : null,
-                reweigh.RWVolWeight ? parseFloat(reweigh.RWVolWeight) : null,
+                (reweigh.RWActualWeight && reweigh.RWActualWeight !== '') ? parseFloat(reweigh.RWActualWeight) : null,
+                (reweigh.RWLength && reweigh.RWLength !== '') ? parseFloat(reweigh.RWLength) : null,
+                (reweigh.RWBreadth && reweigh.RWBreadth !== '') ? parseFloat(reweigh.RWBreadth) : null,
+                (reweigh.RWHeight && reweigh.RWHeight !== '') ? parseFloat(reweigh.RWHeight) : null,
+                (reweigh.RWVolWeight && reweigh.RWVolWeight !== '') ? parseFloat(reweigh.RWVolWeight) : null,
                 shipmentId
               ]
             );
@@ -295,11 +307,17 @@ const processStatusWebhook = async (req, res) => {
         });
         
       } catch (entryError) {
-        console.error(`Error processing shipment entry:`, entryError);
+        console.error(`❌ Error processing shipment entry:`, entryError);
+        console.error(`   Waybill: ${entry.Shipment?.WaybillNo || 'unknown'}`);
+        console.error(`   Error details:`, {
+          message: entryError.message,
+          stack: process.env.NODE_ENV === 'development' ? entryError.stack : undefined
+        });
         errors.push({
           waybill_no: entry.Shipment?.WaybillNo || 'unknown',
           error: entryError.message
         });
+        // Continue processing other shipments even if one fails
       }
     }
     
@@ -325,25 +343,34 @@ const processStatusWebhook = async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Webhook processing error:', error);
+    console.error('❌ Webhook processing error:', error);
+    console.error('   Error message:', error.message);
+    console.error('   Error stack:', process.env.NODE_ENV === 'development' ? error.stack : 'hidden');
     
-    // Log error
-    await logWebhookAudit(
-      null,
-      500,
-      'Server error',
-      error.message,
-      req.ip || req.connection.remoteAddress,
-      req.clientId || req.headers['client-id'],
-      req.body
-    );
-    
-    // Return 500 error (Blue Dart will retry)
-    res.status(500).json({
-      success: false,
-      message: 'Server error processing webhook',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    // Only log if response hasn't been sent
+    if (!res.headersSent) {
+      try {
+        // Log error
+        await logWebhookAudit(
+          null,
+          500,
+          'Server error',
+          error.message,
+          req.ip || req.connection.remoteAddress,
+          req.clientId || req.headers['client-id'],
+          req.body
+        );
+      } catch (logError) {
+        console.error('Failed to log webhook audit:', logError);
+      }
+      
+      // Return 500 error (Blue Dart will retry)
+      res.status(500).json({
+        success: false,
+        message: 'Server error processing webhook',
+        error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      });
+    }
   }
 };
 
