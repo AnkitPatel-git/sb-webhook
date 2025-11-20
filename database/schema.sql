@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS shipments (
   shipment_mode VARCHAR(5),
   weight DECIMAL(7,2),
   dynamic_expected_delivery_date DATE,
+  customer_code VARCHAR(6),
+  special_instruction VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_waybill_no (waybill_no),
@@ -49,10 +51,12 @@ CREATE TABLE IF NOT EXISTS scans (
   status_longitude VARCHAR(25),
   reached_destination_location CHAR(1),
   secure_code VARCHAR(20),
+  sorry_card_number VARCHAR(25),
   received_by VARCHAR(50),
   relation VARCHAR(50),
   id_type VARCHAR(20),
   id_number VARCHAR(50),
+  id_description VARCHAR(30),
   qc_type VARCHAR(1),
   qc_reason VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -71,6 +75,7 @@ CREATE TABLE IF NOT EXISTS delivery_details (
   relation VARCHAR(50),
   id_type VARCHAR(20),
   id_number VARCHAR(50),
+  id_description VARCHAR(30),
   security_code_delivery VARCHAR(50),
   signature TEXT,
   id_image TEXT,
@@ -90,9 +95,63 @@ CREATE TABLE IF NOT EXISTS reweigh (
   rw_breadth DECIMAL(7,2),
   rw_height DECIMAL(7,2),
   rw_vol_weight DECIMAL(7,2),
+  rw_image_url VARCHAR(100),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
   INDEX idx_shipment_id (shipment_id),
+  INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- QC Failed table for Blue Dart QC failure information
+CREATE TABLE IF NOT EXISTS qc_failed (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT NOT NULL,
+  qc_type VARCHAR(1),
+  qc_reason VARCHAR(255),
+  pictures JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  INDEX idx_shipment_id (shipment_id),
+  INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Call Logs table for Blue Dart call/SMS logs
+CREATE TABLE IF NOT EXISTS call_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT NOT NULL,
+  message VARCHAR(300),
+  log_date DATE,
+  log_time VARCHAR(4),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  INDEX idx_shipment_id (shipment_id),
+  INDEX idx_log_date (log_date),
+  INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- POD/DC Images table for Blue Dart POD and DC images
+CREATE TABLE IF NOT EXISTS pod_dc_images (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT NOT NULL,
+  pod_images JSON,
+  dc_images JSON,
+  image_sequence VARCHAR(50),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  INDEX idx_shipment_id (shipment_id),
+  INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Reweigh Images table for Blue Dart reweigh images (RWImage)
+CREATE TABLE IF NOT EXISTS reweigh_images (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT NOT NULL,
+  mps_number VARCHAR(16),
+  rw_image_url VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  INDEX idx_shipment_id (shipment_id),
+  INDEX idx_mps_number (mps_number),
   INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -101,14 +160,19 @@ CREATE TABLE IF NOT EXISTS webhook_audit_log (
   id INT AUTO_INCREMENT PRIMARY KEY,
   waybill_no VARCHAR(20),
   payload JSON,
+  request_data JSON,
+  response_data JSON,
   response_status INT,
   response_message TEXT,
   error_message TEXT,
   client_ip VARCHAR(45),
   client_id VARCHAR(100),
+  api_endpoint VARCHAR(255),
   processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_waybill_no (waybill_no),
   INDEX idx_processed_at (processed_at),
-  INDEX idx_response_status (response_status)
+  INDEX idx_response_status (response_status),
+  INDEX idx_client_id (client_id),
+  INDEX idx_api_endpoint (api_endpoint)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

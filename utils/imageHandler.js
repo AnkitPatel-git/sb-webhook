@@ -3,11 +3,14 @@ const path = require("path");
 
 /**
  * Save base64 image to file system
+ * Images are stored in storage/{year}/{month}/ structure
+ * Only the URL/path is stored in the database
+ *
  * @param {string} base64Data - Base64 encoded image data (with or without data URI prefix)
- * @param {string} waybillNo - Waybill number for folder organization
- * @param {string} imageType - Type of image (qc, pod, dc, id)
+ * @param {string} waybillNo - Waybill number for filename prefix
+ * @param {string} imageType - Type of image (qc, pod, dc, id, signature)
  * @param {number} index - Index for multiple images
- * @returns {string|null} - File path relative to uploads directory, or null if failed
+ * @returns {string|null} - File path relative to storage directory, or null if failed
  */
 function saveBase64Image(base64Data, waybillNo, imageType, index = 0) {
   try {
@@ -32,27 +35,38 @@ function saveBase64Image(base64Data, waybillNo, imageType, index = 0) {
       }
     }
 
-    // Create directory structure: uploads/{waybillNo}/{imageType}/
-    const uploadsDir = path.join(__dirname, "..", "uploads");
-    const waybillDir = path.join(uploadsDir, waybillNo);
-    const typeDir = path.join(waybillDir, imageType);
+    // Get current date for year/month folder structure
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0"); // 01-12
+
+    // Create directory structure: storage/{year}/{month}/
+    const storageDir = path.join(__dirname, "..", "storage");
+    const yearDir = path.join(storageDir, String(year));
+    const monthDir = path.join(yearDir, month);
 
     // Create directories if they don't exist
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    if (!fs.existsSync(storageDir)) {
+      fs.mkdirSync(storageDir, { recursive: true });
     }
-    if (!fs.existsSync(waybillDir)) {
-      fs.mkdirSync(waybillDir, { recursive: true });
+    if (!fs.existsSync(yearDir)) {
+      fs.mkdirSync(yearDir, { recursive: true });
     }
-    if (!fs.existsSync(typeDir)) {
-      fs.mkdirSync(typeDir, { recursive: true });
+    if (!fs.existsSync(monthDir)) {
+      fs.mkdirSync(monthDir, { recursive: true });
     }
 
-    // Generate filename: {timestamp}_{index}.{extension}
+    // Generate filename: {waybillNo}_{imageType}_{timestamp}_{index}.{extension}
     const timestamp = Date.now();
-    const filename = `${timestamp}_${index}.${extension}`;
-    const filePath = path.join(typeDir, filename);
-    const relativePath = path.join("uploads", waybillNo, imageType, filename);
+    const safeWaybillNo = (waybillNo || "unknown").replace(
+      /[^a-zA-Z0-9]/g,
+      "_"
+    );
+    const filename = `${safeWaybillNo}_${imageType}_${timestamp}_${index}.${extension}`;
+    const filePath = path.join(monthDir, filename);
+
+    // Return relative path from project root: storage/{year}/{month}/{filename}
+    const relativePath = path.join("storage", String(year), month, filename);
 
     // Decode and save base64 to file
     const buffer = Buffer.from(base64String, "base64");
@@ -68,10 +82,12 @@ function saveBase64Image(base64Data, waybillNo, imageType, index = 0) {
 
 /**
  * Save multiple base64 images
+ * Images are stored in storage/{year}/{month}/ structure
+ *
  * @param {Array} base64Array - Array of base64 encoded images
- * @param {string} waybillNo - Waybill number
- * @param {string} imageType - Type of image
- * @returns {Array} - Array of file paths
+ * @param {string} waybillNo - Waybill number for filename prefix
+ * @param {string} imageType - Type of image (qc, pod, dc, id, signature)
+ * @returns {Array} - Array of file paths (URLs) relative to storage directory
  */
 function saveBase64Images(base64Array, waybillNo, imageType) {
   if (!Array.isArray(base64Array) || base64Array.length === 0) {

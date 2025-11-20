@@ -1,5 +1,6 @@
 const pool = require("../config/database");
 const { saveBase64Images, saveBase64Image } = require("../utils/imageHandler");
+const { logRequestResponse } = require("../utils/requestLogger");
 
 /**
  * Blue Dart Webhook Status Endpoint
@@ -31,21 +32,21 @@ const processStatusWebhook = async (req, res) => {
 
     // Validate payload structure
     if (!statustracking || !Array.isArray(statustracking)) {
-      // Log invalid payload
-      await logWebhookAudit(
-        null,
-        400,
-        "Invalid payload: statustracking array missing",
-        null,
-        clientIP,
-        clientId,
-        req.body
-      );
-
-      return res.status(400).json({
+      const errorResponse = {
         success: false,
         message: "Invalid payload: statustracking array is required",
-      });
+      };
+
+      // Log invalid payload (logging middleware will also log this)
+      await logRequestResponse(
+        req,
+        res,
+        "/api/bluedart/status",
+        errorResponse,
+        400
+      );
+
+      return res.status(400).json(errorResponse);
     }
 
     // Process each shipment in the array
@@ -72,9 +73,10 @@ const processStatusWebhook = async (req, res) => {
             `INSERT INTO shipments (
               sender_id, receiver_id, waybill_no, ref_no, prod_code, sub_product_code,
               feature, origin, origin_area_code, destination, destination_area_code,
-              pickup_date, pickup_time, expected_delivery_date, shipment_mode, weight, dynamic_expected_delivery_date
+              pickup_date, pickup_time, expected_delivery_date, shipment_mode, weight, 
+              dynamic_expected_delivery_date, customer_code, special_instruction
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
-              STR_TO_DATE(?, '%d-%m-%Y'), ?, STR_TO_DATE(?, '%d-%m-%Y'), ?, ?, STR_TO_DATE(?, '%d-%m-%Y'))`,
+              STR_TO_DATE(?, '%d-%m-%Y'), ?, STR_TO_DATE(?, '%d-%m-%Y'), ?, ?, STR_TO_DATE(?, '%d-%m-%Y'), ?, ?)`,
             [
               shipment.SenderID || null,
               shipment.ReceiverID || null,
@@ -93,6 +95,8 @@ const processStatusWebhook = async (req, res) => {
               shipment.ShipmentMode || null,
               shipment.Weight ? parseFloat(shipment.Weight) : 0,
               shipment.DynamicExpectedDeliveryDate || null,
+              shipment.CustomerCode || null,
+              shipment.SpecialInstruction || null,
             ]
           );
           shipmentId = result.insertId;
@@ -105,11 +109,15 @@ const processStatusWebhook = async (req, res) => {
             `UPDATE shipments SET
               expected_delivery_date = COALESCE(STR_TO_DATE(?, '%d-%m-%Y'), expected_delivery_date),
               dynamic_expected_delivery_date = COALESCE(STR_TO_DATE(?, '%d-%m-%Y'), dynamic_expected_delivery_date),
+              customer_code = COALESCE(?, customer_code),
+              special_instruction = COALESCE(?, special_instruction),
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?`,
             [
               shipment.ExpectedDeliveryDate || null,
               shipment.DynamicExpectedDeliveryDate || null,
+              shipment.CustomerCode || null,
+              shipment.SpecialInstruction || null,
               shipmentId,
             ]
           );
@@ -138,10 +146,12 @@ const processStatusWebhook = async (req, res) => {
             StatusLongitude: null,
             ReachedDestinationLocation: null,
             SecureCode: null,
+            SorryCardNumber: shipment.SorryCardNumber || null,
             ReceivedBy: null,
             Relation: null,
             IDType: null,
             IDNumber: null,
+            IDDescription: null,
             QCType: null,
             QCReason: null,
           });
@@ -176,9 +186,9 @@ const processStatusWebhook = async (req, res) => {
                 shipment_id, scan_type, scan_group_type, scan_code, scan, scan_date,
                 scan_time, scanned_location_code, scanned_location, scanned_location_city, 
                 scanned_location_state_code, comments, status_timezone, status_latitude, 
-                status_longitude, reached_destination_location, secure_code, received_by,
-                relation, id_type, id_number, qc_type, qc_reason
-              ) VALUES (?, ?, ?, ?, ?, STR_TO_DATE(?, '%d-%m-%Y'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                status_longitude, reached_destination_location, secure_code, sorry_card_number,
+                received_by, relation, id_type, id_number, id_description, qc_type, qc_reason
+              ) VALUES (?, ?, ?, ?, ?, STR_TO_DATE(?, '%d-%m-%Y'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 shipmentId,
                 scan.ScanType || null,
@@ -197,10 +207,12 @@ const processStatusWebhook = async (req, res) => {
                 scan.StatusLongitude || null,
                 scan.ReachedDestinationLocation || null,
                 scan.SecureCode || null,
+                scan.SorryCardNumber || null,
                 scan.ReceivedBy || null,
                 scan.Relation || null,
                 scan.IDType || null,
                 scan.IDNumber || null,
+                scan.IDDescription || null,
                 scan.QCType || null,
                 scan.QCReason || null,
               ]
@@ -249,15 +261,16 @@ const processStatusWebhook = async (req, res) => {
           if (existingDelivery.length === 0) {
             await pool.execute(
               `INSERT INTO delivery_details (
-                shipment_id, received_by, relation, id_type, id_number, 
+                shipment_id, received_by, relation, id_type, id_number, id_description,
                 security_code_delivery, signature, id_image
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 shipmentId,
                 deliveryDetails.ReceivedBy || null,
                 deliveryDetails.Relation || null,
                 deliveryDetails.IDType || null,
                 deliveryDetails.IDNumber || null,
+                deliveryDetails.IDDescription || null,
                 deliveryDetails.SecurityCodeDelivery || null,
                 signaturePath || null,
                 idImagePath || null,
@@ -271,6 +284,7 @@ const processStatusWebhook = async (req, res) => {
                 relation = COALESCE(?, relation),
                 id_type = COALESCE(?, id_type),
                 id_number = COALESCE(?, id_number),
+                id_description = COALESCE(?, id_description),
                 security_code_delivery = COALESCE(?, security_code_delivery),
                 signature = COALESCE(?, signature),
                 id_image = COALESCE(?, id_image)
@@ -280,6 +294,7 @@ const processStatusWebhook = async (req, res) => {
                 deliveryDetails.Relation || null,
                 deliveryDetails.IDType || null,
                 deliveryDetails.IDNumber || null,
+                deliveryDetails.IDDescription || null,
                 deliveryDetails.SecurityCodeDelivery || null,
                 signaturePath || null,
                 idImagePath || null,
@@ -316,8 +331,8 @@ const processStatusWebhook = async (req, res) => {
               await pool.execute(
                 `INSERT INTO reweigh (
                   shipment_id, mps_number, rw_actual_weight, rw_length, 
-                  rw_breadth, rw_height, rw_vol_weight
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                  rw_breadth, rw_height, rw_vol_weight, rw_image_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   shipmentId,
                   reweigh.MPSNumber || null,
@@ -336,6 +351,7 @@ const processStatusWebhook = async (req, res) => {
                   reweigh.RWVolWeight && reweigh.RWVolWeight !== ""
                     ? parseFloat(reweigh.RWVolWeight)
                     : null,
+                  reweigh.RWImageURL || null,
                 ]
               );
             } else {
@@ -346,7 +362,8 @@ const processStatusWebhook = async (req, res) => {
                   rw_length = COALESCE(?, rw_length),
                   rw_breadth = COALESCE(?, rw_breadth),
                   rw_height = COALESCE(?, rw_height),
-                  rw_vol_weight = COALESCE(?, rw_vol_weight)
+                  rw_vol_weight = COALESCE(?, rw_vol_weight),
+                  rw_image_url = COALESCE(?, rw_image_url)
                 WHERE shipment_id = ? AND mps_number = ?`,
                 [
                   reweigh.RWActualWeight && reweigh.RWActualWeight !== ""
@@ -364,6 +381,7 @@ const processStatusWebhook = async (req, res) => {
                   reweigh.RWVolWeight && reweigh.RWVolWeight !== ""
                     ? parseFloat(reweigh.RWVolWeight)
                     : null,
+                  reweigh.RWImageURL || null,
                   shipmentId,
                   reweigh.MPSNumber || "",
                 ]
@@ -433,16 +451,86 @@ const processStatusWebhook = async (req, res) => {
           Array.isArray(shipment.Scans.CallLogs) &&
           shipment.Scans.CallLogs.length > 0
         ) {
-          // Store all call logs as JSON
-          await pool.execute(
-            `INSERT INTO call_logs (
-              shipment_id, log_data
-            ) VALUES (?, ?)`,
-            [shipmentId, JSON.stringify(shipment.Scans.CallLogs)]
-          );
+          // Store each call log as individual record
+          for (const callLog of shipment.Scans.CallLogs) {
+            // Check if call log already exists to avoid duplicates
+            const [existingCallLog] = await pool.execute(
+              `SELECT id FROM call_logs 
+               WHERE shipment_id = ? AND log_date = STR_TO_DATE(?, '%d-%m-%Y') AND log_time = ? AND message = ?`,
+              [
+                shipmentId,
+                callLog.LogDate || null,
+                callLog.LogTime || null,
+                callLog.Message || null,
+              ]
+            );
+
+            if (existingCallLog.length === 0) {
+              await pool.execute(
+                `INSERT INTO call_logs (
+                  shipment_id, message, log_date, log_time
+                ) VALUES (?, ?, STR_TO_DATE(?, '%d-%m-%Y'), ?)`,
+                [
+                  shipmentId,
+                  callLog.Message || null,
+                  callLog.LogDate || null,
+                  callLog.LogTime || null,
+                ]
+              );
+            }
+          }
         }
 
-        // 7️⃣ Insert POD/DC Images (Push API Plus)
+        // 7️⃣ Insert Reweigh Images (RWImage) - separate from Reweigh table
+        if (shipment.Scans && shipment.Scans.RWImage) {
+          const rwImageData = shipment.Scans.RWImage;
+          // Handle both array and object formats
+          const rwImageArray = Array.isArray(rwImageData)
+            ? rwImageData
+            : [rwImageData];
+
+          for (const rwImage of rwImageArray) {
+            if (
+              !rwImage ||
+              (typeof rwImage === "object" && Object.keys(rwImage).length === 0)
+            ) {
+              continue; // Skip empty objects/arrays
+            }
+
+            // Check if reweigh image already exists
+            const [existingRWImage] = await pool.execute(
+              "SELECT id FROM reweigh_images WHERE shipment_id = ? AND mps_number = ?",
+              [shipmentId, rwImage.MPSNumber || ""]
+            );
+
+            if (existingRWImage.length === 0) {
+              await pool.execute(
+                `INSERT INTO reweigh_images (
+                  shipment_id, mps_number, rw_image_url
+                ) VALUES (?, ?, ?)`,
+                [
+                  shipmentId,
+                  rwImage.MPSNumber || null,
+                  rwImage.RWImageURL || null,
+                ]
+              );
+            } else {
+              // Update existing reweigh image
+              await pool.execute(
+                `UPDATE reweigh_images SET
+                  rw_image_url = COALESCE(?, rw_image_url)
+                WHERE shipment_id = ? AND mps_number = ?`,
+                [
+                  rwImage.RWImageURL || null,
+                  shipmentId,
+                  rwImage.MPSNumber || "",
+                ]
+              );
+            }
+          }
+        }
+
+        // 8️⃣ Insert POD/DC Images (Push API Plus)
         if (shipment.Scans && shipment.Scans.PODDCImages) {
           const podDcImages = shipment.Scans.PODDCImages;
 
@@ -533,26 +621,17 @@ const processStatusWebhook = async (req, res) => {
       }
     }
 
-    // Log successful processing
-    const processingTime = Date.now() - startTime;
-    await logWebhookAudit(
-      processedShipments.length > 0 ? processedShipments[0].waybill_no : null,
-      200,
-      `Processed ${processedShipments.length} shipment(s)`,
-      null,
-      clientIP,
-      clientId,
-      req.body
-    );
-
     // Return success response (200 OK is critical for Blue Dart retry logic)
-    res.status(200).json({
+    // Logging will be handled by the middleware automatically
+    const responseData = {
       success: true,
       message: "Webhook processed successfully",
       processed: processedShipments.length,
       shipments: processedShipments,
       ...(errors.length > 0 && { errors }),
-    });
+    };
+
+    res.status(200).json(responseData);
   } catch (error) {
     console.error("❌ Webhook processing error:", error);
     console.error("   Error message:", error.message);
@@ -563,30 +642,18 @@ const processStatusWebhook = async (req, res) => {
 
     // Only log if response hasn't been sent
     if (!res.headersSent) {
-      try {
-        // Log error
-        await logWebhookAudit(
-          null,
-          500,
-          "Server error",
-          error.message,
-          req.ip || req.connection.remoteAddress,
-          req.clientId || req.headers["client-id"],
-          req.body
-        );
-      } catch (logError) {
-        console.error("Failed to log webhook audit:", logError);
-      }
-
       // Return 500 error (Blue Dart will retry)
-      res.status(500).json({
+      // Logging will be handled by the middleware automatically
+      const errorResponse = {
         success: false,
         message: "Server error processing webhook",
         error:
           process.env.NODE_ENV === "development"
             ? error.message
             : "Internal server error",
-      });
+      };
+
+      res.status(500).json(errorResponse);
     }
   }
 };
@@ -728,7 +795,7 @@ const getAllShipments = async (req, res) => {
     const [countResult] = await pool.execute(countQuery, countParams);
     const total = countResult[0].total;
 
-    res.json({
+    const responseData = {
       success: true,
       data: shipments,
       pagination: {
@@ -737,17 +804,20 @@ const getAllShipments = async (req, res) => {
         total,
         pages: Math.ceil(total / parseInt(limit)),
       },
-    });
+    };
+
+    res.json(responseData);
   } catch (error) {
     console.error("Error fetching shipments:", error);
-    res.status(500).json({
+    const errorResponse = {
       success: false,
       message: "Error fetching shipments",
       error:
         process.env.NODE_ENV === "development"
           ? error.message
           : "Internal server error",
-    });
+    };
+    res.status(500).json(errorResponse);
   }
 };
 
