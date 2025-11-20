@@ -390,22 +390,38 @@ const processStatusWebhook = async (req, res) => {
           }
         }
 
-        // 5️⃣ Insert QC Failed information (Push API Plus)
-        if (shipment.Scans && shipment.Scans.QCFailed) {
-          const qcFailed = shipment.Scans.QCFailed;
-
+        // 5️⃣ Insert QC Failed information (Push API Plus/Advance)
+        // Handle both QCFailed and QC formats
+        const qcData = shipment.Scans?.QCFailed || shipment.Scans?.QC;
+        if (qcData) {
           // Save QC pictures as files if provided
           let picturePaths = [];
           if (
-            qcFailed.Pictures &&
-            Array.isArray(qcFailed.Pictures) &&
-            qcFailed.Pictures.length > 0
+            qcData.Pictures &&
+            Array.isArray(qcData.Pictures) &&
+            qcData.Pictures.length > 0
           ) {
             picturePaths = saveBase64Images(
-              qcFailed.Pictures,
+              qcData.Pictures,
               shipment.WaybillNo,
               "qc"
             );
+          }
+
+          // Extract QC type and reason
+          // QCFailed format: Type, Reason
+          // QC format: Result (P/F), Reason from Questions
+          let qcType = qcData.Type || null;
+          let qcReason = qcData.Reason || null;
+
+          // If QC format, extract from Result field
+          if (!qcType && qcData.Result) {
+            qcType = qcData.Result; // P or F
+          }
+
+          // If no reason in QC format, we can store Remarks or Questions summary
+          if (!qcReason && qcData.Remarks) {
+            qcReason = qcData.Remarks;
           }
 
           // Check if QC failed already exists
@@ -421,8 +437,8 @@ const processStatusWebhook = async (req, res) => {
               ) VALUES (?, ?, ?, ?)`,
               [
                 shipmentId,
-                qcFailed.Type || null,
-                qcFailed.Reason || null,
+                qcType,
+                qcReason,
                 picturePaths.length > 0 ? JSON.stringify(picturePaths) : null,
               ]
             );
@@ -435,8 +451,8 @@ const processStatusWebhook = async (req, res) => {
                 pictures = COALESCE(?, pictures)
               WHERE shipment_id = ?`,
               [
-                qcFailed.Type || null,
-                qcFailed.Reason || null,
+                qcType,
+                qcReason,
                 picturePaths.length > 0 ? JSON.stringify(picturePaths) : null,
                 shipmentId,
               ]
@@ -445,21 +461,47 @@ const processStatusWebhook = async (req, res) => {
         }
 
         // 6️⃣ Insert Call Logs (Push API Plus)
-        if (
-          shipment.Scans &&
-          shipment.Scans.CallLogs &&
-          Array.isArray(shipment.Scans.CallLogs) &&
-          shipment.Scans.CallLogs.length > 0
-        ) {
-          // Store each call log as individual record
-          for (const callLog of shipment.Scans.CallLogs) {
+        // Handle both object and array formats
+        if (shipment.Scans && shipment.Scans.CallLogs) {
+          let callLogsToProcess = [];
+
+          // If CallLogs is an object (single call log)
+          if (!Array.isArray(shipment.Scans.CallLogs)) {
+            callLogsToProcess = [shipment.Scans.CallLogs];
+          } else if (shipment.Scans.CallLogs.length > 0) {
+            // If CallLogs is an array
+            callLogsToProcess = shipment.Scans.CallLogs;
+          }
+
+          // Process each call log
+          for (const callLog of callLogsToProcess) {
+            if (
+              !callLog ||
+              (typeof callLog === "object" && Object.keys(callLog).length === 0)
+            ) {
+              continue; // Skip empty objects
+            }
+
+            // Handle different date formats
+            let logDate = callLog.LogDate || null;
+            let dateFormat = "%d-%m-%Y"; // Default format
+
+            // If date is in YYYYMMDD format (e.g., "20251118"), convert to dd-mm-yyyy
+            if (logDate && /^\d{8}$/.test(logDate)) {
+              const year = logDate.substring(0, 4);
+              const month = logDate.substring(4, 6);
+              const day = logDate.substring(6, 8);
+              logDate = `${day}-${month}-${year}`;
+            }
+
             // Check if call log already exists to avoid duplicates
             const [existingCallLog] = await pool.execute(
               `SELECT id FROM call_logs 
-               WHERE shipment_id = ? AND log_date = STR_TO_DATE(?, '%d-%m-%Y') AND log_time = ? AND message = ?`,
+               WHERE shipment_id = ? AND log_date = STR_TO_DATE(?, ?) AND log_time = ? AND message = ?`,
               [
                 shipmentId,
-                callLog.LogDate || null,
+                logDate,
+                dateFormat,
                 callLog.LogTime || null,
                 callLog.Message || null,
               ]
@@ -469,11 +511,12 @@ const processStatusWebhook = async (req, res) => {
               await pool.execute(
                 `INSERT INTO call_logs (
                   shipment_id, message, log_date, log_time
-                ) VALUES (?, ?, STR_TO_DATE(?, '%d-%m-%Y'), ?)`,
+                ) VALUES (?, ?, STR_TO_DATE(?, ?), ?)`,
                 [
                   shipmentId,
                   callLog.Message || null,
-                  callLog.LogDate || null,
+                  logDate,
+                  dateFormat,
                   callLog.LogTime || null,
                 ]
               );
@@ -577,7 +620,10 @@ const processStatusWebhook = async (req, res) => {
                 shipmentId,
                 podImagePaths.length > 0 ? JSON.stringify(podImagePaths) : null,
                 dcImagePaths.length > 0 ? JSON.stringify(dcImagePaths) : null,
-                podDcImages.Imagesequence || null,
+                podDcImages.Imagesequence ||
+                  podDcImages.ImageSequence ||
+                  podDcImages.image_sequence ||
+                  null,
               ]
             );
           } else {
@@ -591,7 +637,10 @@ const processStatusWebhook = async (req, res) => {
               [
                 podImagePaths.length > 0 ? JSON.stringify(podImagePaths) : null,
                 dcImagePaths.length > 0 ? JSON.stringify(dcImagePaths) : null,
-                podDcImages.Imagesequence || null,
+                podDcImages.Imagesequence ||
+                  podDcImages.ImageSequence ||
+                  podDcImages.image_sequence ||
+                  null,
                 shipmentId,
               ]
             );
