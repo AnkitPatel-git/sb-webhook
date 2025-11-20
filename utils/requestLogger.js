@@ -118,11 +118,12 @@ async function logRequestResponse(
       "unknown";
 
     // Sanitize request body (remove base64 images, keep only filenames)
-    const sanitizedRequestBody = sanitizeImages(req.body);
+    // const sanitizedRequestBody = sanitizeImages(req.body);
+    const sanitizedRequestBody = req.body;
 
     // Sanitize response data (remove base64 images, keep only filenames)
-    const sanitizedResponseData = sanitizeImages(responseData);
-
+    // const sanitizedResponseData = sanitizeImages(responseData);
+    const sanitizedResponseData = responseData;
     // Extract waybill number from request if available
     let waybillNo = null;
     if (req.body?.statustracking && Array.isArray(req.body.statustracking)) {
