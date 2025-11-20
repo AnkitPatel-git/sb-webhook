@@ -3,6 +3,68 @@ const { saveBase64Images, saveBase64Image } = require("../utils/imageHandler");
 const { logRequestResponse } = require("../utils/requestLogger");
 
 /**
+ * Validate date format (dd-mm-yyyy) and check if it's a valid date
+ * @param {string} dateString - Date string in dd-mm-yyyy format
+ * @returns {boolean} - True if valid, false otherwise
+ */
+function isValidDate(dateString) {
+  if (!dateString || dateString.trim() === "") {
+    return true; // Empty dates are allowed (will be null)
+  }
+
+  // Check format: dd-mm-yyyy
+  const dateRegex = /^(\d{2})-(\d{2})-(\d{4})$/;
+  const match = dateString.match(dateRegex);
+
+  if (!match) {
+    return false;
+  }
+
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const year = parseInt(match[3], 10);
+
+  // Check for invalid dates like 30-12-0000
+  if (year < 1900 || year > 2100) {
+    return false;
+  }
+
+  // Create date object and validate
+  const date = new Date(year, month - 1, day);
+
+  // Check if date is valid and matches input
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+}
+
+/**
+ * Validate payload dates
+ * @param {Object} shipment - Shipment object
+ * @returns {string|null} - Error message if invalid, null if valid
+ */
+function validateShipmentDates(shipment) {
+  if (shipment.PickUpDate && !isValidDate(shipment.PickUpDate)) {
+    return `Invalid PickUpDate: ${shipment.PickUpDate}`;
+  }
+  if (
+    shipment.ExpectedDeliveryDate &&
+    !isValidDate(shipment.ExpectedDeliveryDate)
+  ) {
+    return `Invalid ExpectedDeliveryDate: ${shipment.ExpectedDeliveryDate}`;
+  }
+  if (
+    shipment.DynamicExpectedDeliveryDate &&
+    !isValidDate(shipment.DynamicExpectedDeliveryDate)
+  ) {
+    return `Invalid DynamicExpectedDeliveryDate: ${shipment.DynamicExpectedDeliveryDate}`;
+  }
+  return null;
+}
+
+/**
  * Blue Dart Webhook Status Endpoint
  * Processes incoming shipment tracking updates from Blue Dart Push API
  */
@@ -34,10 +96,67 @@ const processStatusWebhook = async (req, res) => {
     if (!statustracking || !Array.isArray(statustracking)) {
       const errorResponse = {
         success: false,
-        message: "Invalid payload: statustracking array is required",
+        message: "incorrect payload",
       };
 
       // Log invalid payload (logging middleware will also log this)
+      await logRequestResponse(
+        req,
+        res,
+        "/api/bluedart/status",
+        errorResponse,
+        400
+      );
+
+      return res.status(400).json(errorResponse);
+    }
+
+    // Validate all shipments before processing
+    const validationErrors = [];
+    for (const entry of statustracking) {
+      const shipment = entry.Shipment;
+
+      if (!shipment || !shipment.WaybillNo) {
+        validationErrors.push("Missing Shipment or WaybillNo");
+        continue;
+      }
+
+      // Validate dates
+      const dateError = validateShipmentDates(shipment);
+      if (dateError) {
+        validationErrors.push(dateError);
+      }
+
+      // Validate scan dates if present
+      if (shipment.Scans && shipment.Scans.ScanDetail) {
+        const scanDetails = Array.isArray(shipment.Scans.ScanDetail)
+          ? shipment.Scans.ScanDetail
+          : [shipment.Scans.ScanDetail];
+
+        for (const scan of scanDetails) {
+          if (scan.ScanDate && !isValidDate(scan.ScanDate)) {
+            validationErrors.push(
+              `Invalid ScanDate: ${scan.ScanDate} for waybill ${shipment.WaybillNo}`
+            );
+          }
+        }
+      }
+
+      // Validate Lite format scan date
+      if (shipment.ScanDate && !isValidDate(shipment.ScanDate)) {
+        validationErrors.push(
+          `Invalid ScanDate: ${shipment.ScanDate} for waybill ${shipment.WaybillNo}`
+        );
+      }
+    }
+
+    // If validation errors found, return error response
+    if (validationErrors.length > 0) {
+      const errorResponse = {
+        success: false,
+        message: "incorrect payload",
+      };
+
       await logRequestResponse(
         req,
         res,
@@ -662,6 +781,32 @@ const processStatusWebhook = async (req, res) => {
               ? entryError.stack
               : undefined,
         });
+
+        // Check if error is a date parsing error
+        const isDateError =
+          entryError.message &&
+          (entryError.message.includes("Incorrect datetime value") ||
+            entryError.message.includes("str_to_date") ||
+            entryError.message.includes("Invalid date"));
+
+        if (isDateError) {
+          // Return validation error for date parsing errors
+          const errorResponse = {
+            success: false,
+            message: "incorrect payload",
+          };
+
+          await logRequestResponse(
+            req,
+            res,
+            "/api/bluedart/status",
+            errorResponse,
+            400
+          );
+
+          return res.status(400).json(errorResponse);
+        }
+
         errors.push({
           waybill_no: entry.Shipment?.WaybillNo || "unknown",
           error: entryError.message,
