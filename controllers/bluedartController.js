@@ -65,6 +65,41 @@ function validateShipmentDates(shipment) {
 }
 
 /**
+ * Validate field lengths based on database schema
+ * @param {Object} shipment - Shipment object
+ * @returns {string|null} - Error message if invalid, null if valid
+ */
+function validateFieldLengths(shipment) {
+  // Shipments table field length constraints
+  const fieldLimits = {
+    SenderID: 10,
+    ReceiverID: 50,
+    WaybillNo: 20,
+    RefNo: 50,
+    Prodcode: 5,
+    SubProductCode: 5,
+    Feature: 5,
+    Origin: 50,
+    OriginAreaCode: 5,
+    Destination: 50,
+    DestinationAreaCode: 5,
+    PickUpTime: 10,
+    ShipmentMode: 5,
+    CustomerCode: 6,
+    SpecialInstruction: 50,
+  };
+
+  for (const [field, maxLength] of Object.entries(fieldLimits)) {
+    const value = shipment[field];
+    if (value && typeof value === "string" && value.length > maxLength) {
+      return `${field} exceeds maximum length of ${maxLength} characters (received ${value.length})`;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Blue Dart Webhook Status Endpoint
  * Processes incoming shipment tracking updates from Blue Dart Push API
  */
@@ -130,6 +165,15 @@ const processStatusWebhook = async (req, res) => {
         validationErrors.push({
           waybill_no: shipment.WaybillNo,
           error: dateError,
+        });
+      }
+
+      // Validate field lengths
+      const lengthError = validateFieldLengths(shipment);
+      if (lengthError) {
+        validationErrors.push({
+          waybill_no: shipment.WaybillNo,
+          error: lengthError,
         });
       }
 
@@ -791,15 +835,28 @@ const processStatusWebhook = async (req, res) => {
               : undefined,
         });
 
-        // Check if error is a date parsing error
-        const isDateError =
-          entryError.message &&
-          (entryError.message.includes("Incorrect datetime value") ||
-            entryError.message.includes("str_to_date") ||
-            entryError.message.includes("Invalid date"));
+        // Check if error is a validation/data error (date, length, constraint errors)
+        // MySQL error codes: 1406 (ER_DATA_TOO_LONG), 1265 (ER_TRUNCATED_WRONG_VALUE), 1054 (ER_BAD_FIELD_ERROR)
+        const isValidationError =
+          (entryError.message &&
+            (entryError.message.includes("Incorrect datetime value") ||
+              entryError.message.includes("str_to_date") ||
+              entryError.message.includes("Invalid date") ||
+              entryError.message.includes("Data too long for column") ||
+              entryError.message.includes("Out of range value") ||
+              entryError.message.includes("Incorrect") ||
+              entryError.message.includes("cannot be null") ||
+              entryError.message.includes("Column") ||
+              entryError.message.includes("too long"))) ||
+          entryError.code === "ER_DATA_TOO_LONG" ||
+          entryError.code === "ER_TRUNCATED_WRONG_VALUE" ||
+          entryError.code === "ER_BAD_FIELD_ERROR" ||
+          entryError.code === 1406 || // ER_DATA_TOO_LONG
+          entryError.code === 1265 || // ER_TRUNCATED_WRONG_VALUE
+          entryError.code === 1054; // ER_BAD_FIELD_ERROR
 
-        if (isDateError) {
-          // Return validation error for date parsing errors
+        if (isValidationError) {
+          // Return validation error for data validation errors
           const errorResponse = {
             success: false,
             message: "incorrect payload",
