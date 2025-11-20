@@ -117,14 +117,20 @@ const processStatusWebhook = async (req, res) => {
       const shipment = entry.Shipment;
 
       if (!shipment || !shipment.WaybillNo) {
-        validationErrors.push("Missing Shipment or WaybillNo");
+        validationErrors.push({
+          waybill_no: shipment?.WaybillNo || "unknown",
+          error: "Missing Shipment or WaybillNo",
+        });
         continue;
       }
 
       // Validate dates
       const dateError = validateShipmentDates(shipment);
       if (dateError) {
-        validationErrors.push(dateError);
+        validationErrors.push({
+          waybill_no: shipment.WaybillNo,
+          error: dateError,
+        });
       }
 
       // Validate scan dates if present
@@ -135,18 +141,20 @@ const processStatusWebhook = async (req, res) => {
 
         for (const scan of scanDetails) {
           if (scan.ScanDate && !isValidDate(scan.ScanDate)) {
-            validationErrors.push(
-              `Invalid ScanDate: ${scan.ScanDate} for waybill ${shipment.WaybillNo}`
-            );
+            validationErrors.push({
+              waybill_no: shipment.WaybillNo,
+              error: `Invalid ScanDate: ${scan.ScanDate}`,
+            });
           }
         }
       }
 
       // Validate Lite format scan date
       if (shipment.ScanDate && !isValidDate(shipment.ScanDate)) {
-        validationErrors.push(
-          `Invalid ScanDate: ${shipment.ScanDate} for waybill ${shipment.WaybillNo}`
-        );
+        validationErrors.push({
+          waybill_no: shipment.WaybillNo,
+          error: `Invalid ScanDate: ${shipment.ScanDate}`,
+        });
       }
     }
 
@@ -155,6 +163,7 @@ const processStatusWebhook = async (req, res) => {
       const errorResponse = {
         success: false,
         message: "incorrect payload",
+        errors: validationErrors,
       };
 
       await logRequestResponse(
@@ -794,6 +803,12 @@ const processStatusWebhook = async (req, res) => {
           const errorResponse = {
             success: false,
             message: "incorrect payload",
+            errors: [
+              {
+                waybill_no: entry.Shipment?.WaybillNo || "unknown",
+                error: entryError.message,
+              },
+            ],
           };
 
           await logRequestResponse(
