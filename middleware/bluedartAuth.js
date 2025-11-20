@@ -4,24 +4,10 @@
  */
 
 const authenticateBlueDart = (req, res, next) => {
-  // Try multiple header name variations (case-insensitive)
-  // Express normalizes headers to lowercase, but handle both formats
-  const clientId =
-    req.headers["client-id"] ||
-    req.headers["client_id"] ||
-    req.headers["Client-ID"] ||
-    req.headers["CLIENT-ID"];
-
-  // License Key header - Express normalizes to lowercase, spaces may become hyphens
-  const licenseKey =
-    req.headers["license key"] ||
-    req.headers["license-key"] ||
-    req.headers["License Key"] ||
-    req.headers["License-Key"] ||
-    req.headers["LICENSE KEY"] ||
-    req.headers["LICENSE-KEY"] ||
-    req.headers["license_key"] ||
-    req.headers["License_Key"];
+  // Express normalizes headers to lowercase
+  // HTTP header standard: use hyphens (e.g., Content-Type, User-Agent)
+  const clientId = req.headers["client-id"];
+  const licenseKey = req.headers["license-key"];
 
   // Get credentials from environment variables
   const validClientId = process.env.BLUEDART_CLIENT_ID || "stagingID";
@@ -34,10 +20,7 @@ const authenticateBlueDart = (req, res, next) => {
   if (process.env.NODE_ENV === "development") {
     console.log("🔍 Auth Debug - Received headers:", {
       "client-id": req.headers["client-id"],
-      client_id: req.headers["client_id"],
-      "license key": req.headers["license key"],
       "license-key": req.headers["license-key"],
-      license_key: req.headers["license_key"],
       "all-headers": Object.keys(req.headers).filter(
         (k) =>
           k.toLowerCase().includes("client") ||
