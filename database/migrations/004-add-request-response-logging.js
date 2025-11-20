@@ -46,11 +46,25 @@ module.exports = {
       `);
     }
 
+    // Add headers column to webhook_audit_log
+    if (!(await columnExists("webhook_audit_log", "headers"))) {
+      await db.query(`
+        ALTER TABLE webhook_audit_log
+        ADD COLUMN headers JSON AFTER api_endpoint
+      `);
+    }
+
     console.log("✅ Added request/response logging columns");
   },
 
   down: async (db) => {
     // Remove added columns
+    try {
+      await db.query(`ALTER TABLE webhook_audit_log DROP COLUMN headers`);
+    } catch (e) {
+      console.log("Column headers may not exist");
+    }
+
     try {
       await db.query(`ALTER TABLE webhook_audit_log DROP COLUMN api_endpoint`);
     } catch (e) {

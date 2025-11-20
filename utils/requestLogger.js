@@ -134,15 +134,19 @@ async function logRequestResponse(
       waybillNo = req.params.waybillNo;
     }
 
+    // Prepare headers JSON (store all headers)
+    const headersJson = {};
+    for (const key in req.headers) {
+      if (req.headers.hasOwnProperty(key)) {
+        headersJson[key] = req.headers[key];
+      }
+    }
+
     // Prepare request log
     const requestLog = {
       method: req.method,
       url: req.originalUrl || req.url,
       path: apiEndpoint,
-      headers: {
-        "content-type": req.headers["content-type"],
-        "user-agent": req.headers["user-agent"],
-      },
       body: sanitizedRequestBody,
       query: req.query,
       params: req.params,
@@ -167,9 +171,10 @@ async function logRequestResponse(
         client_ip, 
         client_id,
         api_endpoint,
+        headers,
         request_data,
         response_data
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         waybillNo,
         JSON.stringify(sanitizedRequestBody), // Keep for backward compatibility
@@ -181,8 +186,9 @@ async function logRequestResponse(
         clientIP,
         clientId,
         apiEndpoint,
-        JSON.stringify(requestLog), // New: Full request details in JSON
-        JSON.stringify(responseLog), // New: Full response details in JSON
+        JSON.stringify(headersJson), // Store all headers as JSON
+        JSON.stringify(requestLog), // Full request details in JSON
+        JSON.stringify(responseLog), // Full response details in JSON
       ]
     );
 

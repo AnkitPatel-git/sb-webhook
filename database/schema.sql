@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS webhook_audit_log (
   client_ip VARCHAR(45),
   client_id VARCHAR(100),
   api_endpoint VARCHAR(255),
+  headers JSON,
   processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_waybill_no (waybill_no),
   INDEX idx_processed_at (processed_at),
