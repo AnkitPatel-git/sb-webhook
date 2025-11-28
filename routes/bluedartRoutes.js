@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const bluedartController = require('../controllers/bluedartController');
 const { authenticateBlueDart, validateIPWhitelist } = require('../middleware/bluedartAuth');
+const { logRequestMiddleware } = require('../utils/requestLogger');
+
+// Apply logging middleware FIRST - this is the first task to log all requests
+router.use(logRequestMiddleware);
 
 // Apply authentication middleware to all Blue Dart routes
 router.use(authenticateBlueDart);
