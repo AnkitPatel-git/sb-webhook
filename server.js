@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
+const path = require("path");
 require("dotenv").config();
 
 const bluedartRoutes = require("./routes/bluedartRoutes");
@@ -16,6 +17,9 @@ app.use(cors());
 // Increase body parser limit for large payloads
 app.use(bodyParser.json({ limit: "10mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
+
+// Serve static files from storage directory
+app.use("/storage", express.static(path.join(__dirname, "storage")));
 
 // Trust proxy for accurate IP addresses (important for IP whitelisting)
 app.set("trust proxy", true);
