@@ -8,9 +8,7 @@ const bluedartRoutes = require("./routes/bluedartRoutes");
 const errorHandler = require("./middleware/errorHandler");
 
 const app = express();
-// Port configuration: 3010 for development, 3011 for production
-const PORT =
-  process.env.PORT || (process.env.NODE_ENV === "production" ? 3011 : 3010);
+const PORT = process.env.PORT || 3010;
 
 // Middleware
 app.use(cors());
