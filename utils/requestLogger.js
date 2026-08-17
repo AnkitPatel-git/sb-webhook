@@ -118,12 +118,10 @@ async function logRequestResponse(
       "unknown";
 
     // Sanitize request body (remove base64 images, keep only filenames)
-    // const sanitizedRequestBody = sanitizeImages(req.body);
-    const sanitizedRequestBody = req.body;
+    const sanitizedRequestBody = sanitizeImages(req.body);
 
     // Sanitize response data (remove base64 images, keep only filenames)
-    // const sanitizedResponseData = sanitizeImages(responseData);
-    const sanitizedResponseData = responseData;
+    const sanitizedResponseData = sanitizeImages(responseData);
     // Extract waybill number from request if available
     let waybillNo = null;
     if (req.body?.statustracking && Array.isArray(req.body.statustracking)) {
@@ -143,12 +141,11 @@ async function logRequestResponse(
       }
     }
 
-    // Prepare request log
+    // Prepare request log (body lives in payload column — don't duplicate it)
     const requestLog = {
       method: req.method,
       url: req.originalUrl || req.url,
       path: apiEndpoint,
-      body: sanitizedRequestBody,
       query: req.query,
       params: req.params,
       timestamp: new Date().toISOString(),
@@ -207,6 +204,18 @@ async function logRequestResponse(
  * This runs first before any other processing
  */
 function logRequestMiddleware(req, res, next) {
+  // Only persist webhook POSTs. GET listing/detail calls would flood audit rows.
+  const isWebhookPost =
+    req.method === "POST" &&
+    (req.path === "/status" ||
+      req.originalUrl === "/api/bluedart/status" ||
+      (typeof req.originalUrl === "string" &&
+        req.originalUrl.split("?")[0].endsWith("/status")));
+
+  if (!isWebhookPost) {
+    return next();
+  }
+
   // Store original res.json to capture response
   const originalJson = res.json.bind(res);
 

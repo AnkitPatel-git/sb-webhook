@@ -1,6 +1,5 @@
 const pool = require("../config/database");
 const { saveBase64Images, saveBase64Image } = require("../utils/imageHandler");
-const { logRequestResponse } = require("../utils/requestLogger");
 
 /**
  * Validate date format (dd-mm-yyyy) and check if it's a valid date
@@ -100,6 +99,40 @@ function validateFieldLengths(shipment) {
 }
 
 /**
+ * Blue Dart Plus/Advance always sends nested objects even when unused.
+ * Treat null, "", whitespace, [], and objects whose values are all empty as empty.
+ */
+function isEmptyValue(value) {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  if (typeof value === "string") {
+    return value.trim() === "";
+  }
+  if (typeof value === "number") {
+    return Number.isNaN(value);
+  }
+  if (typeof value === "boolean") {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0 || value.every(isEmptyValue);
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    return keys.length === 0 || keys.every((key) => isEmptyValue(value[key]));
+  }
+  return false;
+}
+
+function hasMeaningfulFields(obj, fields) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+    return false;
+  }
+  return fields.some((field) => !isEmptyValue(obj[field]));
+}
+
+/**
  * Blue Dart Webhook Status Endpoint
  * Processes incoming shipment tracking updates from Blue Dart Push API
  */
@@ -129,21 +162,10 @@ const processStatusWebhook = async (req, res) => {
 
     // Validate payload structure
     if (!statustracking || !Array.isArray(statustracking)) {
-      const errorResponse = {
+      return res.status(400).json({
         success: false,
         message: "incorrect payload",
-      };
-
-      // Log invalid payload (logging middleware will also log this)
-      await logRequestResponse(
-        req,
-        res,
-        "/api/bluedart/status",
-        errorResponse,
-        400
-      );
-
-      return res.status(400).json(errorResponse);
+      });
     }
 
     // Validate all shipments before processing
@@ -204,21 +226,11 @@ const processStatusWebhook = async (req, res) => {
 
     // If validation errors found, return error response
     if (validationErrors.length > 0) {
-      const errorResponse = {
+      return res.status(400).json({
         success: false,
         message: "incorrect payload",
         errors: validationErrors,
-      };
-
-      await logRequestResponse(
-        req,
-        res,
-        "/api/bluedart/status",
-        errorResponse,
-        400
-      );
-
-      return res.status(400).json(errorResponse);
+      });
     }
 
     // Process each shipment in the array
@@ -300,7 +312,7 @@ const processStatusWebhook = async (req, res) => {
         let scansToProcess = [];
 
         // Push API Lite: Scan data directly on Shipment object
-        if (shipment.Scan || shipment.ScanCode) {
+        if (!isEmptyValue(shipment.Scan) || !isEmptyValue(shipment.ScanCode)) {
           scansToProcess.push({
             ScanType: shipment.ScanType,
             ScanGroupType: shipment.ScanGroupType,
@@ -330,7 +342,7 @@ const processStatusWebhook = async (req, res) => {
         }
 
         // Push API Plus: Scan data in Scans.ScanDetail array
-        if (shipment.Scans && shipment.Scans.ScanDetail) {
+        if (!isEmptyValue(shipment.Scans?.ScanDetail)) {
           const scanDetails = Array.isArray(shipment.Scans.ScanDetail)
             ? shipment.Scans.ScanDetail
             : [shipment.Scans.ScanDetail];
@@ -340,10 +352,15 @@ const processStatusWebhook = async (req, res) => {
 
         // Process all scans
         for (const scan of scansToProcess) {
+          if (!hasMeaningfulFields(scan, ["ScanCode", "Scan"])) {
+            continue;
+          }
+
           // Check if scan already exists (avoid duplicates)
+          // Use <=> so NULL scan_code/date/time still match (SQL = NULL never matches)
           const [existingScan] = await pool.execute(
             `SELECT id FROM scans 
-             WHERE shipment_id = ? AND scan_code = ? AND scan_date = STR_TO_DATE(?, '%d-%m-%Y') AND scan_time = ?`,
+             WHERE shipment_id = ? AND scan_code <=> ? AND scan_date <=> STR_TO_DATE(?, '%d-%m-%Y') AND scan_time <=> ?`,
             [
               shipmentId,
               scan.ScanCode || null,
@@ -393,7 +410,19 @@ const processStatusWebhook = async (req, res) => {
         }
 
         // 3️⃣ Insert delivery details (Push API Plus only)
-        if (shipment.Scans && shipment.Scans.DeliveryDetails) {
+        // Blue Dart always sends DeliveryDetails with empty strings when unused
+        if (
+          hasMeaningfulFields(shipment.Scans?.DeliveryDetails, [
+            "ReceivedBy",
+            "Relation",
+            "IDType",
+            "IDNumber",
+            "IDDescription",
+            "SecurityCodeDelivery",
+            "Signature",
+            "IDImage",
+          ])
+        ) {
           const deliveryDetails = shipment.Scans.DeliveryDetails;
 
           // Save ID Image as file if provided (base64)
@@ -478,7 +507,7 @@ const processStatusWebhook = async (req, res) => {
 
         // 4️⃣ Insert reweigh information (Push API Plus only)
         // Handle both object and array formats
-        if (shipment.Scans && shipment.Scans.Reweigh) {
+        if (!isEmptyValue(shipment.Scans?.Reweigh)) {
           const reweighData = shipment.Scans.Reweigh;
           // Handle both array and object formats
           const reweighArray = Array.isArray(reweighData)
@@ -487,10 +516,17 @@ const processStatusWebhook = async (req, res) => {
 
           for (const reweigh of reweighArray) {
             if (
-              !reweigh ||
-              (typeof reweigh === "object" && Object.keys(reweigh).length === 0)
+              !hasMeaningfulFields(reweigh, [
+                "MPSNumber",
+                "RWActualWeight",
+                "RWLength",
+                "RWBreadth",
+                "RWHeight",
+                "RWVolWeight",
+                "RWImageURL",
+              ])
             ) {
-              continue; // Skip empty objects/arrays
+              continue;
             }
 
             // Check if reweigh already exists
@@ -565,7 +601,15 @@ const processStatusWebhook = async (req, res) => {
         // 5️⃣ Insert QC Failed information (Push API Plus/Advance)
         // Handle both QCFailed and QC formats
         const qcData = shipment.Scans?.QCFailed || shipment.Scans?.QC;
-        if (qcData) {
+        if (
+          hasMeaningfulFields(qcData, [
+            "Type",
+            "Result",
+            "Reason",
+            "Remarks",
+            "Pictures",
+          ])
+        ) {
           // Save QC pictures as files if provided
           let picturePaths = [];
           if (
@@ -634,7 +678,7 @@ const processStatusWebhook = async (req, res) => {
 
         // 6️⃣ Insert Call Logs (Push API Plus)
         // Handle both object and array formats
-        if (shipment.Scans && shipment.Scans.CallLogs) {
+        if (!isEmptyValue(shipment.Scans?.CallLogs)) {
           let callLogsToProcess = [];
 
           // If CallLogs is an object (single call log)
@@ -648,10 +692,9 @@ const processStatusWebhook = async (req, res) => {
           // Process each call log
           for (const callLog of callLogsToProcess) {
             if (
-              !callLog ||
-              (typeof callLog === "object" && Object.keys(callLog).length === 0)
+              !hasMeaningfulFields(callLog, ["Message", "LogDate", "LogTime"])
             ) {
-              continue; // Skip empty objects
+              continue;
             }
 
             // Handle different date formats
@@ -669,7 +712,7 @@ const processStatusWebhook = async (req, res) => {
             // Check if call log already exists to avoid duplicates
             const [existingCallLog] = await pool.execute(
               `SELECT id FROM call_logs 
-               WHERE shipment_id = ? AND log_date = STR_TO_DATE(?, ?) AND log_time = ? AND message = ?`,
+               WHERE shipment_id = ? AND log_date <=> STR_TO_DATE(?, ?) AND log_time <=> ? AND message <=> ?`,
               [
                 shipmentId,
                 logDate,
@@ -697,7 +740,7 @@ const processStatusWebhook = async (req, res) => {
         }
 
         // 7️⃣ Insert Reweigh Images (RWImage) - separate from Reweigh table
-        if (shipment.Scans && shipment.Scans.RWImage) {
+        if (!isEmptyValue(shipment.Scans?.RWImage)) {
           const rwImageData = shipment.Scans.RWImage;
           // Handle both array and object formats
           const rwImageArray = Array.isArray(rwImageData)
@@ -705,11 +748,8 @@ const processStatusWebhook = async (req, res) => {
             : [rwImageData];
 
           for (const rwImage of rwImageArray) {
-            if (
-              !rwImage ||
-              (typeof rwImage === "object" && Object.keys(rwImage).length === 0)
-            ) {
-              continue; // Skip empty objects/arrays
+            if (!hasMeaningfulFields(rwImage, ["RWImageURL", "MPSNumber"])) {
+              continue;
             }
 
             // Check if reweigh image already exists
@@ -746,7 +786,15 @@ const processStatusWebhook = async (req, res) => {
         }
 
         // 8️⃣ Insert POD/DC Images (Push API Plus)
-        if (shipment.Scans && shipment.Scans.PODDCImages) {
+        if (
+          hasMeaningfulFields(shipment.Scans?.PODDCImages, [
+            "PODImage",
+            "DCImage",
+            "Imagesequence",
+            "ImageSequence",
+            "image_sequence",
+          ])
+        ) {
           const podDcImages = shipment.Scans.PODDCImages;
 
           // Save POD images as files if provided
@@ -856,8 +904,7 @@ const processStatusWebhook = async (req, res) => {
           entryError.code === 1054; // ER_BAD_FIELD_ERROR
 
         if (isValidationError) {
-          // Return validation error for data validation errors
-          const errorResponse = {
+          return res.status(400).json({
             success: false,
             message: "incorrect payload",
             errors: [
@@ -866,17 +913,7 @@ const processStatusWebhook = async (req, res) => {
                 error: entryError.message,
               },
             ],
-          };
-
-          await logRequestResponse(
-            req,
-            res,
-            "/api/bluedart/status",
-            errorResponse,
-            400
-          );
-
-          return res.status(400).json(errorResponse);
+          });
         }
 
         errors.push({
